@@ -1,0 +1,1300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket SIP Softphone</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <script src="./sip-0.21.2.js"></script>
+    <style>
+        .status-connected { color: #28a745; }
+        .status-disconnected { color: #dc3545; }
+        .status-connecting { color: #ffc107; }
+        .call-active { background-color: #d4edda; border-color: #c3e6cb; }
+        .number-pad button { margin: 2px; min-width: 60px; min-height: 60px; }
+        .volume-control { width: 100%; }
+        .call-info { font-family: monospace; }
+        #audioContainer audio { width: 100%; margin: 5px 0; }
+    </style>
+</head>
+<body>
+    <div class="container-fluid mt-3">
+        <div class="row">
+            <div class="col-12">
+                <h2 class="text-center mb-4">WebSocket SIP Softphone</h2>
+            </div>
+        </div>
+
+        <!-- Connection Configuration -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Connection Settings</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <label for="wsServer" class="form-label">WebSocket Server</label>
+                                <input type="text" class="form-control" id="wsServer" placeholder="wss://your-server.example.com:8089/ws" value="">
+                            </div>
+                            <div class="col-md-2">
+                                <label for="sipUser" class="form-label">SIP User</label>
+                                <input type="text" class="form-control" id="sipUser" placeholder="extension" value="">
+                            </div>
+                            <div class="col-md-2">
+                                <label for="sipPassword" class="form-label">Password</label>
+                                <input type="password" class="form-control" id="sipPassword" placeholder="password">
+                            </div>
+                            <div class="col-md-2">
+                                <label for="sipDomain" class="form-label">Domain</label>
+                                <input type="text" class="form-control" id="sipDomain" placeholder="example.com" value="">
+                            </div>
+                            <div class="col-md-3 d-flex align-items-end">
+                                <button type="button" class="btn btn-primary me-2" id="connectBtn">
+                                    <i class="bi bi-plug"></i> Connect
+                                </button>
+                                <button type="button" class="btn btn-danger me-2" id="disconnectBtn" disabled>
+                                    <i class="bi bi-plug-fill"></i> Disconnect
+                                </button>
+                                <button type="button" class="btn btn-warning" id="testConnectionBtn">
+                                    <i class="bi bi-activity"></i> Test
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Status Bar -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="alert alert-info" role="alert">
+                    <strong>Status:</strong> <span id="connectionStatus" class="status-disconnected">Disconnected</span>
+                    <span id="registrationStatus" class="ms-3"></span>
+                    <div id="errorMessage" class="mt-2" style="display: none;"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- Dialer Panel -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Dialer</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label for="phoneNumber" class="form-label">Phone Number</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control form-control-lg" id="phoneNumber" placeholder="Enter number to dial">
+                                <button class="btn btn-outline-secondary" type="button" id="clearNumber">
+                                    <i class="bi bi-backspace"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Number Pad -->
+                        <div class="number-pad text-center mb-3">
+                            <div class="row">
+                                <div class="col-4"><button class="btn btn-outline-primary" data-digit="1">1</button></div>
+                                <div class="col-4"><button class="btn btn-outline-primary" data-digit="2">2<br><small>ABC</small></button></div>
+                                <div class="col-4"><button class="btn btn-outline-primary" data-digit="3">3<br><small>DEF</small></button></div>
+                            </div>
+                            <div class="row">
+                                <div class="col-4"><button class="btn btn-outline-primary" data-digit="4">4<br><small>GHI</small></button></div>
+                                <div class="col-4"><button class="btn btn-outline-primary" data-digit="5">5<br><small>JKL</small></button></div>
+                                <div class="col-4"><button class="btn btn-outline-primary" data-digit="6">6<br><small>MNO</small></button></div>
+                            </div>
+                            <div class="row">
+                                <div class="col-4"><button class="btn btn-outline-primary" data-digit="7">7<br><small>PQRS</small></button></div>
+                                <div class="col-4"><button class="btn btn-outline-primary" data-digit="8">8<br><small>TUV</small></button></div>
+                                <div class="col-4"><button class="btn btn-outline-primary" data-digit="9">9<br><small>WXYZ</small></button></div>
+                            </div>
+                            <div class="row">
+                                <div class="col-4"><button class="btn btn-outline-primary" data-digit="*">*</button></div>
+                                <div class="col-4"><button class="btn btn-outline-primary" data-digit="0">0</button></div>
+                                <div class="col-4"><button class="btn btn-outline-primary" data-digit="#">#</button></div>
+                            </div>
+                        </div>
+
+                        <!-- Call Controls -->
+                        <div class="d-grid gap-2">
+                            <button type="button" class="btn btn-success btn-lg" id="callBtn" disabled>
+                                <i class="bi bi-telephone"></i> Call
+                            </button>
+                            <div class="row">
+                                <div class="col-6">
+                                    <button type="button" class="btn btn-danger w-100" id="hangupBtn" disabled>
+                                        <i class="bi bi-telephone-x"></i> Hangup
+                                    </button>
+                                </div>
+                                <div class="col-6">
+                                    <button type="button" class="btn btn-warning w-100" id="holdBtn" disabled>
+                                        <i class="bi bi-pause"></i> Hold
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Call Info & Audio Controls -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Call Information</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="callInfo" class="call-info mb-3">
+                            <div><strong>Status:</strong> <span id="callStatus">Idle</span></div>
+                            <div><strong>Remote Party:</strong> <span id="remoteParty">-</span></div>
+                            <div><strong>Duration:</strong> <span id="callDuration">00:00</span></div>
+                            <div><strong>Local URI:</strong> <span id="localUri">-</span></div>
+                        </div>
+
+                        <!-- Audio Controls -->
+                        <div class="audio-controls">
+                            <h6>Audio Controls</h6>
+                            <div class="row mb-2">
+                                <div class="col-6">
+                                    <label for="micVolume" class="form-label">Microphone</label>
+                                    <input type="range" class="form-range volume-control" id="micVolume" min="0" max="100" value="100">
+                                    <button class="btn btn-sm btn-outline-secondary" id="muteBtn">
+                                        <i class="bi bi-mic"></i> Mute
+                                    </button>
+                                </div>
+                                <div class="col-6">
+                                    <label for="speakerVolume" class="form-label">Speaker</label>
+                                    <input type="range" class="form-range volume-control" id="speakerVolume" min="0" max="100" value="100">
+                                    <span class="badge bg-secondary" id="volumeValue">100%</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Audio Elements Container -->
+                        <div id="audioContainer" class="mt-3">
+                            <h6>Audio Streams</h6>
+                            <div class="text-muted">Audio elements will appear here during calls</div>
+                        </div>
+
+                        <!-- DTMF Controls -->
+                        <div class="mt-3">
+                            <h6>DTMF (During Call)</h6>
+                            <div class="btn-group" role="group">
+                                <button type="button" class="btn btn-outline-secondary btn-sm dtmf-btn" data-tone="1">1</button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm dtmf-btn" data-tone="2">2</button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm dtmf-btn" data-tone="3">3</button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm dtmf-btn" data-tone="*">*</button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm dtmf-btn" data-tone="0">0</button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm dtmf-btn" data-tone="#">#</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Debug Information -->
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h6 class="mb-0">Debug Log</h6>
+                    </div>
+                    <div class="card-body">
+                        <div id="debugLog" style="height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.8rem; background-color: #f8f9fa; padding: 10px; border-radius: 4px;">
+                            <div class="text-muted">Debug information will appear here...</div>
+                        </div>
+                        <button class="btn btn-sm btn-outline-secondary mt-2" id="clearLogBtn">Clear Log</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Incoming Call Modal -->
+        <div class="modal fade" id="incomingCallModal" tabindex="-1" aria-labelledby="incomingCallModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header bg-success text-white">
+                        <h5 class="modal-title" id="incomingCallModalLabel">
+                            <i class="bi bi-telephone-inbound"></i> Incoming Call
+                        </h5>
+                    </div>
+                    <div class="modal-body text-center">
+                        <div class="mb-3">
+                            <i class="bi bi-person-circle" style="font-size: 4rem; color: #28a745;"></i>
+                        </div>
+                        <h4 id="incomingCallerName" class="mb-2">Unknown Caller</h4>
+                        <p id="incomingCallerNumber" class="text-muted mb-4">-</p>
+                        <div class="row">
+                            <div class="col-6">
+                                <button type="button" class="btn btn-danger btn-lg w-100" id="declineCallBtn">
+                                    <i class="bi bi-telephone-x"></i><br>Decline
+                                </button>
+                            </div>
+                            <div class="col-6">
+                                <button type="button" class="btn btn-success btn-lg w-100" id="acceptCallBtn">
+                                    <i class="bi bi-telephone"></i><br>Accept
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Call History Panel -->
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Call History</h5>
+                        <button class="btn btn-sm btn-outline-secondary" id="clearHistoryBtn">
+                            <i class="bi bi-trash"></i> Clear History
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div id="callHistoryList" style="max-height: 300px; overflow-y: auto;">
+                            <div class="text-muted text-center">No calls yet</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        class SoftPhone {
+            constructor() {
+                this.ua = null;
+                this.currentSession = null;
+                this.isConnected = false;
+                this.isRegistered = false;
+                this.callTimer = null;
+                this.callStartTime = null;
+                this.isMuted = false;
+                this.isOnHold = false;
+                this.incomingCallModal = null;
+                this.pendingInvitation = null;
+                this.callHistory = [];
+
+                this.loadSettings();
+                this.loadCallHistory();
+                this.initializeEventListeners();
+                this.log('Softphone initialized');
+            }
+
+            log(message, type = 'info') {
+                const timestamp = new Date().toLocaleTimeString();
+                const logEntry = `[${timestamp}] ${message}`;
+                const debugLog = document.getElementById('debugLog');
+
+                const div = document.createElement('div');
+                div.className = `text-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'dark'}`;
+                div.textContent = logEntry;
+
+                debugLog.appendChild(div);
+                debugLog.scrollTop = debugLog.scrollHeight;
+
+                console.log(logEntry);
+            }
+
+            initializeEventListeners() {
+                // Connection controls
+                document.getElementById('connectBtn').addEventListener('click', () => this.connect());
+                document.getElementById('disconnectBtn').addEventListener('click', () => this.disconnect());
+                document.getElementById('testConnectionBtn').addEventListener('click', () => this.testConnection());
+
+                // Save settings when they change
+                document.getElementById('wsServer').addEventListener('input', () => this.saveSettings());
+                document.getElementById('sipUser').addEventListener('input', () => this.saveSettings());
+                document.getElementById('sipPassword').addEventListener('input', () => this.saveSettings());
+                document.getElementById('sipDomain').addEventListener('input', () => this.saveSettings());
+
+                // Dialer controls
+                document.getElementById('callBtn').addEventListener('click', () => this.makeCall());
+                document.getElementById('hangupBtn').addEventListener('click', () => this.hangupCall());
+                document.getElementById('holdBtn').addEventListener('click', () => this.toggleHold());
+                document.getElementById('clearNumber').addEventListener('click', () => this.clearNumber());
+
+                // Number pad
+                document.querySelectorAll('[data-digit]').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const digit = e.currentTarget.getAttribute('data-digit');
+                        this.addDigit(digit);
+                    });
+                });
+
+                // DTMF buttons
+                document.querySelectorAll('.dtmf-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const tone = e.currentTarget.getAttribute('data-tone');
+                        this.sendDTMF(tone);
+                    });
+                });
+
+                // Audio controls
+                document.getElementById('muteBtn').addEventListener('click', () => this.toggleMute());
+                document.getElementById('speakerVolume').addEventListener('input', (e) => {
+                    this.setSpeakerVolume(e.target.value);
+                });
+                document.getElementById('micVolume').addEventListener('input', (e) => {
+                    this.setMicrophoneVolume(e.target.value);
+                });
+
+                // Debug controls
+                document.getElementById('clearLogBtn').addEventListener('click', () => this.clearLog());
+
+                // Phone number input
+                document.getElementById('phoneNumber').addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        this.makeCall();
+                    }
+                });
+
+                // Incoming call modal controls
+                document.getElementById('acceptCallBtn').addEventListener('click', () => this.acceptIncomingCall());
+                document.getElementById('declineCallBtn').addEventListener('click', () => this.declineIncomingCall());
+
+                // Call history controls
+                document.getElementById('clearHistoryBtn').addEventListener('click', () => this.clearCallHistory());
+            }
+
+            async connect() {
+                const wsServer = document.getElementById('wsServer').value;
+                const sipUser = document.getElementById('sipUser').value;
+                const sipPassword = document.getElementById('sipPassword').value;
+                const sipDomain = document.getElementById('sipDomain').value;
+
+                if (!wsServer || !sipUser || !sipPassword || !sipDomain) {
+                    this.log('Please fill in all connection fields', 'error');
+                    return;
+                }
+
+                this.log(`Attempting to connect to: ${wsServer}`);
+                this.log(`SIP URI will be: sip:${sipUser}@${sipDomain}`);
+                this.updateConnectionStatus('connecting');
+
+                // Validate WebSocket URL format
+                try {
+                    new URL(wsServer);
+                } catch (urlError) {
+                    this.log(`Invalid WebSocket URL format: ${wsServer}`, 'error');
+                    this.showError(`Invalid WebSocket URL: ${urlError.message}`);
+                    this.updateConnectionStatus('disconnected');
+                    return;
+                }
+
+                // Check if WebSocket URL uses secure connection for HTTPS pages
+                if (window.location.protocol === 'https:' && wsServer.startsWith('ws://')) {
+                    this.log('Warning: Using insecure WebSocket (ws://) on HTTPS page may fail due to mixed content policy', 'error');
+                    this.showError('Warning: Mixed content - use wss:// for HTTPS pages');
+                }
+
+                try {
+                    const uri = SIP.UserAgent.makeURI(`sip:${sipUser}@${sipDomain}`);
+                    if (!uri) {
+                        throw new Error(`Failed to create SIP URI from: sip:${sipUser}@${sipDomain}`);
+                    }
+
+                    this.log(`Created SIP URI: ${uri.toString()}`);
+
+                    const transportOptions = {
+                        server: wsServer,
+                        connectionTimeout: 10000, // Increased timeout
+                        maxReconnectionAttempts: 3,
+                        reconnectionTimeout: 4000
+                    };
+
+                    const userAgentOptions = {
+                        uri: uri,
+                        transportOptions: transportOptions,
+                        authorizationUsername: sipUser,
+                        authorizationPassword: sipPassword,
+                        sessionDescriptionHandlerFactoryOptions: {
+                            constraints: {
+                                audio: true,
+                                video: false
+                            },
+                            peerConnectionConfiguration: {
+                                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                            }
+                        }
+                    };
+
+                    this.log('Creating SIP UserAgent with options:', 'info');
+                    this.log(`- Server: ${transportOptions.server}`, 'info');
+                    this.log(`- Timeout: ${transportOptions.connectionTimeout}ms`, 'info');
+                    this.log(`- Auth Username: ${sipUser}`, 'info');
+                    this.log(`- Domain: ${sipDomain}`, 'info');
+
+                    this.ua = new SIP.UserAgent(userAgentOptions);
+
+                    // Enhanced event handlers with detailed error reporting
+                    this.ua.delegate = {
+                        onConnect: () => {
+                            this.log('WebSocket connection established successfully', 'success');
+                            this.isConnected = true;
+                            this.updateConnectionStatus('connected');
+                            this.register();
+                        },
+                        onDisconnect: (error) => {
+                            const errorMsg = error ? error.message : 'Unknown disconnection reason';
+                            this.log(`WebSocket disconnected: ${errorMsg}`, 'error');
+
+                            // Provide more detailed error analysis
+                            if (errorMsg.includes('1006')) {
+                                this.log('Connection closed abnormally (code 1006) - possible causes:', 'error');
+                                this.log('• Server is not running or not accepting WebSocket connections', 'error');
+                                this.log('• Firewall or proxy blocking the connection', 'error');
+                                this.log('• Invalid server address or port', 'error');
+                                this.log('• SSL/TLS certificate issues (for wss://)', 'error');
+                                this.showError('Connection failed: Server unreachable or WebSocket endpoint not available');
+                            } else if (errorMsg.includes('1000')) {
+                                this.log('Normal closure (code 1000) - Server closed connection normally', 'info');
+                            } else if (errorMsg.includes('1001')) {
+                                this.log('Endpoint going away (code 1001) - Server shutting down', 'error');
+                            } else if (errorMsg.includes('1002')) {
+                                this.log('Protocol error (code 1002) - WebSocket protocol violation', 'error');
+                            } else if (errorMsg.includes('1003')) {
+                                this.log('Unsupported data (code 1003) - Server received unsupported data type', 'error');
+                            } else if (errorMsg.includes('1007')) {
+                                this.log('Invalid frame payload (code 1007) - Data encoding error', 'error');
+                            } else if (errorMsg.includes('1008')) {
+                                this.log('Policy violation (code 1008) - Server policy violation', 'error');
+                            } else if (errorMsg.includes('1011')) {
+                                this.log('Internal server error (code 1011) - Server encountered unexpected condition', 'error');
+                            }
+
+                            this.isConnected = false;
+                            this.isRegistered = false;
+                            this.updateConnectionStatus('disconnected');
+                            this.updateRegistrationStatus('');
+                        },
+                        onInvite: (invitation) => {
+                            this.log(`Incoming call from: ${invitation.remoteIdentity.displayName || invitation.remoteIdentity.uri.user}`, 'success');
+                            this.handleIncomingCall(invitation);
+                        }
+                    };
+
+                    this.log('Starting SIP UserAgent...');
+                    await this.ua.start();
+
+                    document.getElementById('localUri').textContent = uri.toString();
+                    this.log('UserAgent started successfully', 'success');
+
+                } catch (error) {
+                    this.log(`Connection failed: ${error.message}`, 'error');
+                    this.log(`Error type: ${error.name}`, 'error');
+
+                    // Provide specific troubleshooting based on error type
+                    if (error.message.includes('WebSocket')) {
+                        this.log('WebSocket-specific troubleshooting:', 'error');
+                        this.log('• Verify the server address and port are correct', 'error');
+                        this.log('• Check if the server supports WebSocket connections', 'error');
+                        this.log('• Ensure no firewall is blocking the connection', 'error');
+                        this.log('• Try using a different network or VPN', 'error');
+                    } else if (error.message.includes('URI')) {
+                        this.log('SIP URI troubleshooting:', 'error');
+                        this.log('• Check username format (no spaces or special characters)', 'error');
+                        this.log('• Verify domain format (e.g., localhost, domain.com)', 'error');
+                        this.log('• Ensure no @ symbols in username field', 'error');
+                    }
+
+                    this.updateConnectionStatus('disconnected');
+                    this.showError(`Connection failed: ${error.message}`);
+                }
+            }
+
+            async register() {
+                if (!this.ua) return;
+
+                try {
+                    this.log('Starting SIP registration process...');
+                    const registerer = new SIP.Registerer(this.ua);
+
+                    registerer.stateChange.addListener((newState) => {
+                        this.log(`Registration state changed: ${newState}`, newState === SIP.RegistererState.Registered ? 'success' : 'info');
+
+                        if (newState === SIP.RegistererState.Registered) {
+                            this.isRegistered = true;
+                            this.updateRegistrationStatus('Registered');
+                            this.enableControls(true);
+                            this.log('Successfully registered with SIP server', 'success');
+                        } else if (newState === SIP.RegistererState.Unregistered) {
+                            this.isRegistered = false;
+                            this.updateRegistrationStatus('Unregistered');
+                            this.enableControls(false);
+                            this.log('SIP registration lost', 'error');
+                        } else if (newState === SIP.RegistererState.Terminated) {
+                            this.isRegistered = false;
+                            this.updateRegistrationStatus('Registration Terminated');
+                            this.enableControls(false);
+                            this.log('SIP registration terminated', 'error');
+                        }
+                    });
+
+                    registerer.stateChange.addListener((newState) => {
+                        if (newState === SIP.RegistererState.Terminated) {
+                            this.log('Registration failed - check credentials and server configuration', 'error');
+                            this.showError('Registration failed: Check credentials and server configuration');
+                        }
+                    });
+
+                    this.log('Sending REGISTER request...');
+                    await registerer.register();
+                    this.registerer = registerer;
+
+                } catch (error) {
+                    this.log(`Registration failed: ${error.message}`, 'error');
+                    this.showError(`Registration failed: ${error.message}`);
+                }
+            }
+
+            async disconnect() {
+                if (this.currentSession) {
+                    this.hangupCall();
+                }
+
+                if (this.registerer) {
+                    try {
+                        await this.registerer.unregister();
+                    } catch (error) {
+                        this.log(`Unregistration error: ${error.message}`, 'error');
+                    }
+                }
+
+                if (this.ua) {
+                    await this.ua.stop();
+                    this.ua = null;
+                }
+
+                this.isConnected = false;
+                this.isRegistered = false;
+                this.updateConnectionStatus('disconnected');
+                this.updateRegistrationStatus('');
+                this.enableControls(false);
+                this.log('Disconnected', 'info');
+            }
+
+            makeCall() {
+                if (!this.isRegistered) {
+                    this.log('Cannot make call: not registered', 'error');
+                    return;
+                }
+
+                const phoneNumber = document.getElementById('phoneNumber').value;
+                if (!phoneNumber) {
+                    this.log('Please enter a phone number', 'error');
+                    return;
+                }
+
+                try {
+                    const sipDomain = document.getElementById('sipDomain').value;
+                    const targetUri = SIP.UserAgent.makeURI(`sip:${phoneNumber}@${sipDomain}`);
+                    if (!targetUri) {
+                        throw new Error('Invalid phone number');
+                    }
+
+                    this.log(`Making call to: ${phoneNumber}`);
+
+                    const inviter = new SIP.Inviter(this.ua, targetUri);
+                    this.currentSession = inviter;
+                    this.currentCallType = 'outgoing';
+
+                    this.setupSessionHandlers(inviter);
+
+                    inviter.invite({
+                        sessionDescriptionHandlerOptions: {
+                            constraints: { audio: true, video: false }
+                        }
+                    });
+
+                    this.updateCallStatus('Calling...');
+                    this.updateRemoteParty(phoneNumber);
+                    this.enableCallControls(true);
+
+                } catch (error) {
+                    this.log(`Call failed: ${error.message}`, 'error');
+                    this.showError(`Call failed: ${error.message}`);
+                }
+            }
+
+            handleIncomingCall(invitation) {
+                this.pendingInvitation = invitation;
+                this.setupSessionHandlers(invitation);
+
+                const callerInfo = invitation.remoteIdentity.displayName || invitation.remoteIdentity.uri.user;
+                const callerNumber = invitation.remoteIdentity.uri.user;
+
+                this.updateCallStatus('Incoming Call');
+                this.updateRemoteParty(callerInfo);
+
+                // Update modal content
+                document.getElementById('incomingCallerName').textContent = callerInfo || 'Unknown Caller';
+                document.getElementById('incomingCallerNumber').textContent = callerNumber || '-';
+
+                // Show the incoming call modal
+                this.incomingCallModal = new bootstrap.Modal(document.getElementById('incomingCallModal'));
+                this.incomingCallModal.show();
+
+                this.log(`Incoming call from: ${callerInfo}`, 'info');
+            }
+
+            acceptIncomingCall() {
+                if (this.pendingInvitation) {
+                    this.currentSession = this.pendingInvitation;
+                    this.currentCallType = 'incoming';
+                    this.pendingInvitation.accept({
+                        sessionDescriptionHandlerOptions: {
+                            constraints: { audio: true, video: false }
+                        }
+                    });
+                    this.enableCallControls(true);
+                    this.incomingCallModal.hide();
+                    this.pendingInvitation = null;
+                    this.log('Incoming call accepted', 'success');
+                }
+            }
+
+            declineIncomingCall() {
+                if (this.pendingInvitation) {
+                    const callerNumber = this.pendingInvitation.remoteIdentity.uri.user;
+                    this.pendingInvitation.reject();
+                    this.incomingCallModal.hide();
+                    this.pendingInvitation = null;
+
+                    // Add declined call to history as missed
+                    this.addCallToHistory('missed', callerNumber);
+
+                    this.clearCall();
+                    this.log('Incoming call declined', 'info');
+                }
+            }
+
+            setupSessionHandlers(session) {
+                session.stateChange.addListener((newState) => {
+                    this.log(`Call state: ${newState}`, 'info');
+
+                    switch (newState) {
+                        case SIP.SessionState.Establishing:
+                            this.updateCallStatus('Connecting...');
+                            break;
+                        case SIP.SessionState.Established:
+                            this.updateCallStatus('Connected');
+                            this.startCallTimer();
+                            this.setupAudioHandling(session);
+                            break;
+                        case SIP.SessionState.Terminated:
+                            this.updateCallStatus('Call Ended');
+                            this.clearCall();
+                            break;
+                    }
+                });
+
+                // Set up peer connection delegate when session description handler is available
+                const setupPeerConnectionDelegate = () => {
+                    if (session.sessionDescriptionHandler && session.sessionDescriptionHandler.peerConnection) {
+                        session.sessionDescriptionHandler.peerConnection.ontrack = (event) => {
+                            this.log('Remote audio stream received', 'success');
+                            event.streams.forEach(stream => {
+                                this.handleRemoteStream(stream);
+                            });
+                        };
+                    }
+                };
+
+                // Try to set up immediately, or wait for the session description handler
+                if (session.sessionDescriptionHandler) {
+                    setupPeerConnectionDelegate();
+                } else {
+                    // Wait for the session description handler to be created
+                    const checkForHandler = setInterval(() => {
+                        if (session.sessionDescriptionHandler) {
+                            clearInterval(checkForHandler);
+                            setupPeerConnectionDelegate();
+                        }
+                    }, 100);
+                }
+            }
+
+            setupAudioHandling(session) {
+                const sessionDescriptionHandler = session.sessionDescriptionHandler;
+                if (sessionDescriptionHandler && sessionDescriptionHandler.peerConnection) {
+                    const pc = sessionDescriptionHandler.peerConnection;
+
+                    pc.getRemoteStreams().forEach((stream) => {
+                        this.handleRemoteStream(stream);
+                    });
+                }
+            }
+
+            handleRemoteStream(stream) {
+                const audioContainer = document.getElementById('audioContainer');
+                audioContainer.innerHTML = '<h6>Audio Streams</h6>';
+
+                const audio = document.createElement('audio');
+                audio.srcObject = stream;
+                audio.autoplay = true;
+                audio.controls = true;
+                audio.id = 'remoteAudio';
+
+                const label = document.createElement('div');
+                label.textContent = 'Remote Audio Stream';
+                label.className = 'small text-muted mb-1';
+
+                audioContainer.appendChild(label);
+                audioContainer.appendChild(audio);
+
+                this.updateSpeakerVolume();
+            }
+
+            hangupCall() {
+                if (this.currentSession) {
+                    try {
+                        if (this.currentSession.state === SIP.SessionState.Established) {
+                            this.currentSession.bye();
+                        } else if (this.currentSession.state === SIP.SessionState.Establishing) {
+                            this.currentSession.cancel();
+                        }
+                    } catch (error) {
+                        this.log(`Hangup error: ${error.message}`, 'error');
+                    }
+                }
+                this.clearCall();
+            }
+
+            async toggleHold() {
+                if (!this.currentSession || this.currentSession.state !== SIP.SessionState.Established) {
+                    return;
+                }
+
+                try {
+                    if (this.isOnHold) {
+                        // Resume the call
+                        const options = {
+                            sessionDescriptionHandlerOptions: {
+                                constraints: { audio: true, video: false }
+                            }
+                        };
+                        await this.currentSession.invite(options);
+                        this.isOnHold = false;
+                        this.updateCallStatus('Connected');
+                        document.getElementById('holdBtn').innerHTML = '<i class="bi bi-pause"></i> Hold';
+                        this.log('Call resumed', 'info');
+                    } else {
+                        // Put the call on hold by sending re-INVITE with inactive audio
+                        const options = {
+                            sessionDescriptionHandlerOptions: {
+                                hold: true
+                            }
+                        };
+                        await this.currentSession.invite(options);
+                        this.isOnHold = true;
+                        this.updateCallStatus('On Hold');
+                        document.getElementById('holdBtn').innerHTML = '<i class="bi bi-play"></i> Resume';
+                        this.log('Call placed on hold', 'info');
+                    }
+                } catch (error) {
+                    this.log(`Hold operation failed: ${error.message}`, 'error');
+                    // If hold fails, try alternative method using session description handler
+                    this.tryAlternativeHold();
+                }
+            }
+
+            tryAlternativeHold() {
+                try {
+                    const sdh = this.currentSession.sessionDescriptionHandler;
+                    if (sdh && sdh.peerConnection) {
+                        const pc = sdh.peerConnection;
+                        const senders = pc.getSenders();
+
+                        if (this.isOnHold) {
+                            // Resume - enable all tracks
+                            senders.forEach(sender => {
+                                if (sender.track) {
+                                    sender.track.enabled = true;
+                                }
+                            });
+                            this.isOnHold = false;
+                            this.updateCallStatus('Connected');
+                            document.getElementById('holdBtn').innerHTML = '<i class="bi bi-pause"></i> Hold';
+                            this.log('Call resumed (alternative method)', 'info');
+                        } else {
+                            // Hold - disable all tracks
+                            senders.forEach(sender => {
+                                if (sender.track) {
+                                    sender.track.enabled = false;
+                                }
+                            });
+                            this.isOnHold = true;
+                            this.updateCallStatus('On Hold');
+                            document.getElementById('holdBtn').innerHTML = '<i class="bi bi-play"></i> Resume';
+                            this.log('Call placed on hold (alternative method)', 'info');
+                        }
+                    }
+                } catch (error) {
+                    this.log(`Alternative hold method also failed: ${error.message}`, 'error');
+                }
+            }
+
+            sendDTMF(tone) {
+                if (!this.currentSession || this.currentSession.state !== SIP.SessionState.Established) {
+                    this.log('Cannot send DTMF: no active call', 'error');
+                    return;
+                }
+
+                try {
+                    const options = { duration: 100, gap: 50 };
+                    this.currentSession.sessionDescriptionHandler.sendDtmf(tone, options);
+                    this.log(`DTMF sent: ${tone}`, 'info');
+                } catch (error) {
+                    this.log(`DTMF failed: ${error.message}`, 'error');
+                }
+            }
+
+            toggleMute() {
+                if (!this.currentSession || this.currentSession.state !== SIP.SessionState.Established) {
+                    return;
+                }
+
+                try {
+                    const sessionDescriptionHandler = this.currentSession.sessionDescriptionHandler;
+                    if (sessionDescriptionHandler.localMediaStream) {
+                        const audioTracks = sessionDescriptionHandler.localMediaStream.getAudioTracks();
+                        audioTracks.forEach(track => {
+                            track.enabled = this.isMuted;
+                        });
+
+                        this.isMuted = !this.isMuted;
+
+                        const muteBtn = document.getElementById('muteBtn');
+                        if (this.isMuted) {
+                            muteBtn.innerHTML = '<i class="bi bi-mic-mute"></i> Unmute';
+                            muteBtn.classList.remove('btn-outline-secondary');
+                            muteBtn.classList.add('btn-danger');
+                        } else {
+                            muteBtn.innerHTML = '<i class="bi bi-mic"></i> Mute';
+                            muteBtn.classList.remove('btn-danger');
+                            muteBtn.classList.add('btn-outline-secondary');
+                        }
+
+                        this.log(`Microphone ${this.isMuted ? 'muted' : 'unmuted'}`, 'info');
+                    }
+                } catch (error) {
+                    this.log(`Mute operation failed: ${error.message}`, 'error');
+                }
+            }
+
+            setSpeakerVolume(value) {
+                const volumeValue = document.getElementById('volumeValue');
+                volumeValue.textContent = `${value}%`;
+                this.updateSpeakerVolume();
+            }
+
+            updateSpeakerVolume() {
+                const volume = document.getElementById('speakerVolume').value / 100;
+                const audio = document.getElementById('remoteAudio');
+                if (audio) {
+                    audio.volume = volume;
+                }
+            }
+
+            setMicrophoneVolume(value) {
+                // Note: Web browsers don't allow direct microphone volume control
+                // This would need to be handled through audio processing
+                this.log(`Microphone volume set to ${value}%`, 'info');
+            }
+
+            addDigit(digit) {
+                const phoneNumberInput = document.getElementById('phoneNumber');
+                phoneNumberInput.value += digit;
+            }
+
+            clearNumber() {
+                const phoneNumberInput = document.getElementById('phoneNumber');
+                phoneNumberInput.value = phoneNumberInput.value.slice(0, -1);
+            }
+
+            startCallTimer() {
+                this.callStartTime = new Date();
+                this.callTimer = setInterval(() => {
+                    const duration = Math.floor((new Date() - this.callStartTime) / 1000);
+                    const minutes = Math.floor(duration / 60).toString().padStart(2, '0');
+                    const seconds = (duration % 60).toString().padStart(2, '0');
+                    document.getElementById('callDuration').textContent = `${minutes}:${seconds}`;
+                }, 1000);
+            }
+
+            clearCall() {
+                if (this.callTimer) {
+                    clearInterval(this.callTimer);
+                    this.callTimer = null;
+                }
+
+                // Calculate call duration if there was an active call
+                let duration = null;
+                if (this.callStartTime && this.currentSession) {
+                    duration = Math.floor((new Date() - this.callStartTime) / 1000);
+                }
+
+                // Add call to history if there was an active session
+                if (this.currentSession && document.getElementById('remoteParty').textContent !== '-') {
+                    const remoteParty = document.getElementById('remoteParty').textContent;
+                    const callStatus = document.getElementById('callStatus').textContent;
+
+                    let callType = 'outgoing'; // Default assumption
+                    if (callStatus === 'Incoming Call') {
+                        callType = 'missed';
+                    } else if (this.callStartTime) {
+                        // If we have a start time, it was answered
+                        callType = this.currentCallType || 'outgoing';
+                    }
+
+                    this.addCallToHistory(callType, remoteParty, duration);
+                }
+
+                this.currentSession = null;
+                this.currentCallType = null;
+                this.callStartTime = null;
+                this.isOnHold = false;
+                this.isMuted = false;
+
+                this.updateCallStatus('Idle');
+                this.updateRemoteParty('-');
+                document.getElementById('callDuration').textContent = '00:00';
+                this.enableCallControls(false);
+
+                // Reset audio controls
+                document.getElementById('muteBtn').innerHTML = '<i class="bi bi-mic"></i> Mute';
+                document.getElementById('muteBtn').classList.remove('btn-danger');
+                document.getElementById('muteBtn').classList.add('btn-outline-secondary');
+                document.getElementById('holdBtn').innerHTML = '<i class="bi bi-pause"></i> Hold';
+
+                // Clear audio container
+                const audioContainer = document.getElementById('audioContainer');
+                audioContainer.innerHTML = '<h6>Audio Streams</h6><div class="text-muted">Audio elements will appear here during calls</div>';
+
+                this.log('Call cleared', 'info');
+            }
+
+            updateConnectionStatus(status) {
+                const statusElement = document.getElementById('connectionStatus');
+                statusElement.className = `status-${status}`;
+                statusElement.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+
+                document.getElementById('connectBtn').disabled = status === 'connected' || status === 'connecting';
+                document.getElementById('disconnectBtn').disabled = status === 'disconnected';
+            }
+
+            updateRegistrationStatus(status) {
+                document.getElementById('registrationStatus').textContent = status;
+            }
+
+            updateCallStatus(status) {
+                document.getElementById('callStatus').textContent = status;
+            }
+
+            updateRemoteParty(party) {
+                document.getElementById('remoteParty').textContent = party;
+            }
+
+            enableControls(enabled) {
+                document.getElementById('callBtn').disabled = !enabled;
+            }
+
+            enableCallControls(enabled) {
+                document.getElementById('hangupBtn').disabled = !enabled;
+                document.getElementById('holdBtn').disabled = !enabled;
+                document.querySelectorAll('.dtmf-btn').forEach(btn => {
+                    btn.disabled = !enabled;
+                });
+            }
+
+            showError(message) {
+                const errorDiv = document.getElementById('errorMessage');
+                errorDiv.textContent = message;
+                errorDiv.style.display = 'block';
+
+                setTimeout(() => {
+                    errorDiv.style.display = 'none';
+                }, 5000);
+            }
+
+            clearLog() {
+                const debugLog = document.getElementById('debugLog');
+                debugLog.innerHTML = '<div class="text-muted">Debug information will appear here...</div>';
+            }
+
+            async testConnection() {
+                const wsServer = document.getElementById('wsServer').value;
+
+                if (!wsServer) {
+                    this.log('Please enter a WebSocket server URL to test', 'error');
+                    return;
+                }
+
+                this.log('Starting connection diagnostics...');
+                this.log(`Testing connection to: ${wsServer}`);
+
+                try {
+                    const url = new URL(wsServer);
+                    this.log(`URL format valid: ${url.protocol}//${url.host}${url.pathname}`, 'success');
+
+                    if (url.protocol === 'ws:') {
+                        this.log('Using unencrypted WebSocket (ws://)', 'info');
+                    } else if (url.protocol === 'wss:') {
+                        this.log('Using encrypted WebSocket (wss://)', 'success');
+                    } else {
+                        this.log(`Invalid protocol: ${url.protocol} (should be ws: or wss:)`, 'error');
+                        return;
+                    }
+                } catch (error) {
+                    this.log(`Invalid URL format: ${error.message}`, 'error');
+                    return;
+                }
+
+                this.log('Testing WebSocket connectivity...');
+
+                try {
+                    const testSocket = new WebSocket(wsServer);
+                    let connectionResult = false;
+                    let closeCode = null;
+                    let closeReason = '';
+
+                    const timeout = setTimeout(() => {
+                        if (!connectionResult) {
+                            this.log('Connection timeout (10 seconds) - server may be unreachable', 'error');
+                            testSocket.close();
+                        }
+                    }, 10000);
+
+                    testSocket.onopen = () => {
+                        connectionResult = true;
+                        clearTimeout(timeout);
+                        this.log('WebSocket connection established successfully', 'success');
+                        this.log('Connection details:', 'info');
+                        this.log(`- Ready State: ${testSocket.readyState}`, 'info');
+                        this.log(`- Protocol: ${testSocket.protocol || 'none'}`, 'info');
+                        this.log(`- Extensions: ${testSocket.extensions || 'none'}`, 'info');
+
+                        setTimeout(() => {
+                            this.log('Closing test connection...', 'info');
+                            testSocket.close(1000, 'Test complete');
+                        }, 1000);
+                    };
+
+                    testSocket.onclose = (event) => {
+                        clearTimeout(timeout);
+                        closeCode = event.code;
+                        closeReason = event.reason;
+
+                        if (connectionResult) {
+                            this.log(`Test connection closed normally (code: ${closeCode})`, 'success');
+                            this.log('WebSocket server is reachable and accepting connections', 'success');
+                            this.log('If SIP connection still fails, check SIP credentials and server configuration', 'info');
+                        } else {
+                            this.log(`Connection failed (code: ${closeCode})`, 'error');
+                            this.diagnosePlatformProblems(closeCode, closeReason, wsServer);
+                        }
+                    };
+
+                    testSocket.onerror = (error) => {
+                        clearTimeout(timeout);
+                        this.log('WebSocket error occurred during test', 'error');
+                        this.log('This usually indicates network or server issues', 'error');
+                    };
+
+                } catch (error) {
+                    this.log(`Failed to create test WebSocket: ${error.message}`, 'error');
+                    this.log('This may indicate browser restrictions or invalid URL', 'error');
+                }
+            }
+
+            diagnosePlatformProblems(closeCode, closeReason, wsServer) {
+                this.log('Diagnosing connection problems...', 'info');
+
+                switch (closeCode) {
+                    case 1006:
+                        this.log('Connection closed abnormally (1006)', 'error');
+                        this.log('Check: server running, correct endpoint path, firewall, network', 'error');
+                        break;
+                    case 1015:
+                        this.log('TLS handshake failed (1015)', 'error');
+                        this.log('Check SSL certificate or try ws:// for testing', 'error');
+                        break;
+                    default:
+                        this.log(`Unexpected close code: ${closeCode}`, 'error');
+                        if (closeReason) {
+                            this.log(`Close reason: ${closeReason}`, 'error');
+                        }
+                }
+
+                const url = new URL(wsServer);
+                this.log(`Verify server is running on port ${url.port || (url.protocol === 'wss:' ? '443' : '80')}`, 'info');
+                this.log(`Check WebSocket endpoint path: ${url.pathname}`, 'info');
+            }
+
+            clearLog() {
+                const debugLog = document.getElementById('debugLog');
+                debugLog.innerHTML = '<div class="text-muted">Debug information will appear here...</div>';
+            }
+
+            loadSettings() {
+                try {
+                    const savedSettings = localStorage.getItem('sipphone-settings');
+                    if (savedSettings) {
+                        const settings = JSON.parse(savedSettings);
+
+                        if (settings.wsServer) document.getElementById('wsServer').value = settings.wsServer;
+                        if (settings.sipUser) document.getElementById('sipUser').value = settings.sipUser;
+                        if (settings.sipPassword) document.getElementById('sipPassword').value = settings.sipPassword;
+                        if (settings.sipDomain) document.getElementById('sipDomain').value = settings.sipDomain;
+
+                        this.log('Settings loaded from localStorage', 'success');
+                    }
+                } catch (error) {
+                    this.log(`Failed to load settings: ${error.message}`, 'error');
+                }
+            }
+
+            saveSettings() {
+                try {
+                    const settings = {
+                        wsServer: document.getElementById('wsServer').value,
+                        sipUser: document.getElementById('sipUser').value,
+                        sipPassword: document.getElementById('sipPassword').value,
+                        sipDomain: document.getElementById('sipDomain').value
+                    };
+
+                    localStorage.setItem('sipphone-settings', JSON.stringify(settings));
+                    this.log('Settings saved to localStorage', 'info');
+                } catch (error) {
+                    this.log(`Failed to save settings: ${error.message}`, 'error');
+                }
+            }
+
+            loadCallHistory() {
+                try {
+                    const savedHistory = localStorage.getItem('sipphone-call-history');
+                    if (savedHistory) {
+                        this.callHistory = JSON.parse(savedHistory);
+                        this.renderCallHistory();
+                        this.log('Call history loaded from localStorage', 'success');
+                    }
+                } catch (error) {
+                    this.log(`Failed to load call history: ${error.message}`, 'error');
+                    this.callHistory = [];
+                }
+            }
+
+            saveCallHistory() {
+                try {
+                    localStorage.setItem('sipphone-call-history', JSON.stringify(this.callHistory));
+                } catch (error) {
+                    this.log(`Failed to save call history: ${error.message}`, 'error');
+                }
+            }
+
+            addCallToHistory(type, number, duration = null, status = 'completed') {
+                const call = {
+                    id: Date.now(),
+                    type: type, // 'outgoing', 'incoming', 'missed'
+                    number: number,
+                    duration: duration,
+                    status: status,
+                    timestamp: new Date().toISOString()
+                };
+
+                this.callHistory.unshift(call); // Add to beginning
+                if (this.callHistory.length > 100) {
+                    this.callHistory = this.callHistory.slice(0, 100); // Keep only last 100 calls
+                }
+
+                this.saveCallHistory();
+                this.renderCallHistory();
+            }
+
+            renderCallHistory() {
+                const historyContainer = document.getElementById('callHistoryList');
+
+                if (this.callHistory.length === 0) {
+                    historyContainer.innerHTML = '<div class="text-muted text-center">No calls yet</div>';
+                    return;
+                }
+
+                let historyHtml = '';
+                this.callHistory.forEach(call => {
+                    const date = new Date(call.timestamp);
+                    const timeStr = date.toLocaleTimeString();
+                    const dateStr = date.toLocaleDateString();
+
+                    let iconClass = 'bi-telephone';
+                    let iconColor = 'text-primary';
+                    let typeText = call.type;
+
+                    switch (call.type) {
+                        case 'outgoing':
+                            iconClass = 'bi-telephone-outbound';
+                            iconColor = 'text-success';
+                            typeText = 'Outgoing';
+                            break;
+                        case 'incoming':
+                            iconClass = 'bi-telephone-inbound';
+                            iconColor = 'text-info';
+                            typeText = 'Incoming';
+                            break;
+                        case 'missed':
+                            iconClass = 'bi-telephone-x';
+                            iconColor = 'text-danger';
+                            typeText = 'Missed';
+                            break;
+                    }
+
+                    const durationStr = call.duration ? this.formatDuration(call.duration) : '-';
+
+                    historyHtml += `
+                        <div class="d-flex justify-content-between align-items-center border-bottom py-2">
+                            <div class="d-flex align-items-center">
+                                <i class="bi ${iconClass} ${iconColor} me-3"></i>
+                                <div>
+                                    <div class="fw-bold">${call.number}</div>
+                                    <small class="text-muted">${typeText} • ${durationStr}</small>
+                                </div>
+                            </div>
+                            <div class="text-end">
+                                <small class="text-muted">${timeStr}</small><br>
+                                <small class="text-muted">${dateStr}</small>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                historyContainer.innerHTML = historyHtml;
+            }
+
+            formatDuration(seconds) {
+                const minutes = Math.floor(seconds / 60);
+                const remainingSeconds = seconds % 60;
+                return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+            }
+
+            clearCallHistory() {
+                if (confirm('Are you sure you want to clear all call history?')) {
+                    this.callHistory = [];
+                    this.saveCallHistory();
+                    this.renderCallHistory();
+                    this.log('Call history cleared', 'info');
+                }
+            }
+        }
+
+        // Initialize the softphone when the page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            window.softphone = new SoftPhone();
+        });
+    </script>
+</body>
+</html>
