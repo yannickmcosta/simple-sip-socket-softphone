@@ -2,6 +2,8 @@
 
 A standalone WebRTC SIP softphone application using SIP.js and WebSocket transport.
 
+https://yannickmcosta.github.io/simple-sip-socket-softphone/softphone.html
+
 ## Features
 
 - WebRTC-based SIP calling
