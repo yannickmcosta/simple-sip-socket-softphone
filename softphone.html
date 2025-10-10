@@ -16,6 +16,8 @@
         .volume-control { width: 100%; }
         .call-info { font-family: monospace; }
         #audioContainer audio { width: 100%; margin: 5px 0; }
+        .presence-card { transition: all 0.3s ease; }
+        .presence-card:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
     </style>
 </head>
 <body>
@@ -63,6 +65,30 @@
                                 </button>
                             </div>
                         </div>
+                        <div class="row mt-3">
+                            <div class="col-md-12">
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="presenceEnabled">
+                                    <label class="form-check-label fw-bold" for="presenceEnabled">
+                                        <i class="bi bi-eye"></i> Enable Presence & BLF
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row mt-2" id="presenceSettingsRow" style="display: none;">
+                            <div class="col-md-6">
+                                <label for="presenceSubscriptions" class="form-label">Watch Extensions (comma-separated)</label>
+                                <input type="text" class="form-control" id="presenceSubscriptions" placeholder="1001,1002,1003">
+                            </div>
+                            <div class="col-md-3">
+                                <label for="presenceExpires" class="form-label">Presence Expires (seconds)</label>
+                                <input type="number" class="form-control" id="presenceExpires" value="600" min="60">
+                            </div>
+                            <div class="col-md-3">
+                                <label for="publishExpires" class="form-label">Publish Expires (seconds)</label>
+                                <input type="number" class="form-control" id="publishExpires" value="300" min="60">
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -75,6 +101,34 @@
                     <strong>Status:</strong> <span id="connectionStatus" class="status-disconnected">Disconnected</span>
                     <span id="registrationStatus" class="ms-3"></span>
                     <div id="errorMessage" class="mt-2" style="display: none;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Presence Panel -->
+        <div class="row mb-4" id="presencePanel" style="display: none;">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-eye"></i> Presence Status
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <strong>My Status:</strong>
+                                <span id="myPresenceStatus" class="badge bg-secondary ms-2">Unknown</span>
+                            </div>
+                            <div class="col-md-6 text-end">
+                                <strong>Subscriptions:</strong>
+                                <span id="subscriptionCount" class="badge bg-info ms-2">0</span> active
+                            </div>
+                        </div>
+                        <div id="presenceList" style="max-height: 200px; overflow-y: auto;">
+                            <div class="text-muted text-center">Presence information will appear here...</div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -268,6 +322,7 @@
     <script>
         class SoftPhone {
             constructor() {
+                // Core SIP properties
                 this.ua = null;
                 this.currentSession = null;
                 this.isConnected = false;
@@ -279,11 +334,27 @@
                 this.incomingCallModal = null;
                 this.pendingInvitation = null;
                 this.callHistory = [];
+                this.registerer = null;
+
+                // Presence properties
+                this.presenceEnabled = false;
+                this.publishExpires = 300;
+                this.presenceExpires = 600;
+                this.watchedExtensions = [];
+                this.presenceStates = new Map(); // aor -> state object
+                this.activeSubscribers = new Map(); // aor -> Subscriber instance
+                this.publishTimer = null;
+                this.subscriptionTimers = new Map(); // aor -> timer
+                this.myPresenceState = 'open'; // 'open' | 'closed'
+                this.myCallState = 'idle'; // 'idle' | 'ringing' | 'in_call'
+                this.reconnectAttempts = 0;
+                this.maxReconnectAttempts = 5;
+                this.reconnectTimer = null;
 
                 this.loadSettings();
                 this.loadCallHistory();
                 this.initializeEventListeners();
-                this.log('Softphone initialized');
+                this.log('Softphone initialised');
             }
 
             log(message, type = 'info') {
@@ -302,6 +373,12 @@
             }
 
             initializeEventListeners() {
+                // Presence controls
+                document.getElementById('presenceEnabled').addEventListener('change', (e) => {
+                    this.togglePresenceSettings(e.target.checked);
+                    this.saveSettings();
+                });
+
                 // Connection controls
                 document.getElementById('connectBtn').addEventListener('click', () => this.connect());
                 document.getElementById('disconnectBtn').addEventListener('click', () => this.disconnect());
@@ -312,6 +389,9 @@
                 document.getElementById('sipUser').addEventListener('input', () => this.saveSettings());
                 document.getElementById('sipPassword').addEventListener('input', () => this.saveSettings());
                 document.getElementById('sipDomain').addEventListener('input', () => this.saveSettings());
+                document.getElementById('presenceSubscriptions').addEventListener('input', () => this.saveSettings());
+                document.getElementById('presenceExpires').addEventListener('input', () => this.saveSettings());
+                document.getElementById('publishExpires').addEventListener('input', () => this.saveSettings());
 
                 // Dialer controls
                 document.getElementById('callBtn').addEventListener('click', () => this.makeCall());
@@ -362,6 +442,13 @@
                 document.getElementById('clearHistoryBtn').addEventListener('click', () => this.clearCallHistory());
             }
 
+            togglePresenceSettings(enabled) {
+                const row = document.getElementById('presenceSettingsRow');
+                const panel = document.getElementById('presencePanel');
+                row.style.display = enabled ? 'block' : 'none';
+                panel.style.display = enabled ? 'block' : 'none';
+            }
+
             async connect() {
                 const wsServer = document.getElementById('wsServer').value;
                 const sipUser = document.getElementById('sipUser').value;
@@ -403,7 +490,7 @@
 
                     const transportOptions = {
                         server: wsServer,
-                        connectionTimeout: 10000, // Increased timeout
+                        connectionTimeout: 10000,
                         maxReconnectionAttempts: 3,
                         reconnectionTimeout: 4000
                     };
@@ -437,6 +524,8 @@
                         onConnect: () => {
                             this.log('WebSocket connection established successfully', 'success');
                             this.isConnected = true;
+                            this.reconnectAttempts = 0;
+                            this.clearReconnectTimer();
                             this.updateConnectionStatus('connected');
                             this.register();
                         },
@@ -470,6 +559,7 @@
 
                             this.isConnected = false;
                             this.isRegistered = false;
+                            this.handleDisconnection(error);
                             this.updateConnectionStatus('disconnected');
                             this.updateRegistrationStatus('');
                         },
@@ -523,6 +613,11 @@
                             this.updateRegistrationStatus('Registered');
                             this.enableControls(true);
                             this.log('Successfully registered with SIP server', 'success');
+
+                            // Initialise presence if enabled
+                            if (document.getElementById('presenceEnabled').checked) {
+                                this.initPresence();
+                            }
                         } else if (newState === SIP.RegistererState.Unregistered) {
                             this.isRegistered = false;
                             this.updateRegistrationStatus('Unregistered');
@@ -557,6 +652,9 @@
                 if (this.currentSession) {
                     this.hangupCall();
                 }
+
+                // Clean up presence
+                this.cleanupPresence();
 
                 if (this.registerer) {
                     try {
@@ -604,6 +702,9 @@
                     this.currentSession = inviter;
                     this.currentCallType = 'outgoing';
 
+                    // Publish call state: ringing
+                    this.publishCallState('ringing');
+
                     this.setupSessionHandlers(inviter);
 
                     inviter.invite({
@@ -632,6 +733,9 @@
                 this.updateCallStatus('Incoming Call');
                 this.updateRemoteParty(callerInfo);
 
+                // Publish call state: ringing
+                this.publishCallState('ringing');
+
                 // Update modal content
                 document.getElementById('incomingCallerName').textContent = callerInfo || 'Unknown Caller';
                 document.getElementById('incomingCallerNumber').textContent = callerNumber || '-';
@@ -652,6 +756,10 @@
                             constraints: { audio: true, video: false }
                         }
                     });
+
+                    // Publish call state: in_call
+                    this.publishCallState('in_call');
+
                     this.enableCallControls(true);
                     this.incomingCallModal.hide();
                     this.pendingInvitation = null;
@@ -669,6 +777,9 @@
                     // Add declined call to history as missed
                     this.addCallToHistory('missed', callerNumber);
 
+                    // Publish call state: idle
+                    this.publishCallState('idle');
+
                     this.clearCall();
                     this.log('Incoming call declined', 'info');
                 }
@@ -685,10 +796,18 @@
                         case SIP.SessionState.Established:
                             this.updateCallStatus('Connected');
                             this.startCallTimer();
+
+                            // Publish call state: in_call
+                            this.publishCallState('in_call');
+
                             this.setupAudioHandling(session);
                             break;
                         case SIP.SessionState.Terminated:
                             this.updateCallStatus('Call Ended');
+
+                            // Publish call state: idle
+                            this.publishCallState('idle');
+
                             this.clearCall();
                             break;
                     }
@@ -763,6 +882,10 @@
                         this.log(`Hangup error: ${error.message}`, 'error');
                     }
                 }
+
+                // Publish call state: idle
+                this.publishCallState('idle');
+
                 this.clearCall();
             }
 
@@ -1137,11 +1260,6 @@
                 this.log(`Check WebSocket endpoint path: ${url.pathname}`, 'info');
             }
 
-            clearLog() {
-                const debugLog = document.getElementById('debugLog');
-                debugLog.innerHTML = '<div class="text-muted">Debug information will appear here...</div>';
-            }
-
             loadSettings() {
                 try {
                     const savedSettings = localStorage.getItem('sipphone-settings');
@@ -1152,6 +1270,14 @@
                         if (settings.sipUser) document.getElementById('sipUser').value = settings.sipUser;
                         if (settings.sipPassword) document.getElementById('sipPassword').value = settings.sipPassword;
                         if (settings.sipDomain) document.getElementById('sipDomain').value = settings.sipDomain;
+
+                        if (settings.presenceEnabled !== undefined) {
+                            document.getElementById('presenceEnabled').checked = settings.presenceEnabled;
+                            this.togglePresenceSettings(settings.presenceEnabled);
+                        }
+                        if (settings.presenceSubscriptions) document.getElementById('presenceSubscriptions').value = settings.presenceSubscriptions;
+                        if (settings.presenceExpires) document.getElementById('presenceExpires').value = settings.presenceExpires;
+                        if (settings.publishExpires) document.getElementById('publishExpires').value = settings.publishExpires;
 
                         this.log('Settings loaded from localStorage', 'success');
                     }
@@ -1166,7 +1292,11 @@
                         wsServer: document.getElementById('wsServer').value,
                         sipUser: document.getElementById('sipUser').value,
                         sipPassword: document.getElementById('sipPassword').value,
-                        sipDomain: document.getElementById('sipDomain').value
+                        sipDomain: document.getElementById('sipDomain').value,
+                        presenceEnabled: document.getElementById('presenceEnabled').checked,
+                        presenceSubscriptions: document.getElementById('presenceSubscriptions').value,
+                        presenceExpires: document.getElementById('presenceExpires').value,
+                        publishExpires: document.getElementById('publishExpires').value
                     };
 
                     localStorage.setItem('sipphone-settings', JSON.stringify(settings));
@@ -1289,9 +1419,516 @@
                     this.log('Call history cleared', 'info');
                 }
             }
+
+            // ==================== Presence & BLF Module ====================
+
+            initPresence() {
+                this.presenceEnabled = true;
+                this.publishExpires = parseInt(document.getElementById('publishExpires').value) || 300;
+                this.presenceExpires = parseInt(document.getElementById('presenceExpires').value) || 600;
+
+                const subsInput = document.getElementById('presenceSubscriptions').value;
+                this.watchedExtensions = subsInput ? subsInput.split(',').map(e => e.trim()).filter(e => e) : [];
+
+                this.log('Initialising presence features', 'info');
+                this.log(`Publish expires: ${this.publishExpires}s, Presence expires: ${this.presenceExpires}s`, 'info');
+                this.log(`Watching extensions: ${this.watchedExtensions.join(', ') || 'none'}`, 'info');
+
+                // Publish initial presence: open/idle
+                this.publishBasic('open');
+                this.publishCallState('idle');
+
+                // Subscribe to watched extensions
+                this.subscribeToPresence();
+
+                this.updatePresenceUI();
+            }
+
+            cleanupPresence() {
+                this.log('Cleaning up presence subscriptions', 'info');
+
+                // Clear timers
+                if (this.publishTimer) {
+                    clearTimeout(this.publishTimer);
+                    this.publishTimer = null;
+                }
+
+                this.subscriptionTimers.forEach((timer) => {
+                    clearTimeout(timer);
+                });
+                this.subscriptionTimers.clear();
+
+                // Unsubscribe all
+                this.activeSubscribers.forEach((subscriber, aor) => {
+                    try {
+                        subscriber.unsubscribe();
+                    } catch (error) {
+                        this.log(`Failed to unsubscribe ${aor}: ${error.message}`, 'error');
+                    }
+                });
+
+                this.activeSubscribers.clear();
+                this.presenceStates.clear();
+                this.presenceEnabled = false;
+
+                this.updatePresenceUI();
+            }
+
+            publishBasic(state) {
+                if (!this.isRegistered || !this.presenceEnabled) {
+                    return;
+                }
+
+                this.myPresenceState = state;
+                this.log(`Publishing basic presence: ${state}`, 'info');
+
+                const pidf = this.buildPIDFDocument(state, this.myCallState);
+                this.sendPublish(pidf, 'application/pidf+xml');
+            }
+
+            publishCallState(callState) {
+                if (!this.isRegistered || !this.presenceEnabled) {
+                    return;
+                }
+
+                this.myCallState = callState;
+                this.log(`Publishing call state: ${callState}`, 'info');
+
+                const pidf = this.buildPIDFDocument(this.myPresenceState, callState);
+                this.sendPublish(pidf, 'application/pidf+xml');
+            }
+
+            buildPIDFDocument(basicState, callState) {
+                const sipUser = document.getElementById('sipUser').value;
+                const sipDomain = document.getElementById('sipDomain').value;
+                const entity = `sip:${sipUser}@${sipDomain}`;
+                const timestamp = new Date().toISOString();
+
+                // Map call state to RPID activity
+                let activity = '<rpid:unknown/>';
+                if (callState === 'in_call') {
+                    activity = '<rpid:on-the-phone/>';
+                } else if (callState === 'ringing') {
+                    activity = '<rpid:busy/>';
+                } else if (callState === 'idle') {
+                    activity = '<rpid:available/>';
+                }
+
+                return `<?xml version="1.0" encoding="UTF-8"?>
+<presence xmlns="urn:ietf:params:xml:ns:pidf"
+          xmlns:rpid="urn:ietf:params:xml:ns:pidf:rpid"
+          xmlns:dm="urn:ietf:params:xml:ns:pidf:data-model"
+          entity="${entity}">
+  <tuple id="t1">
+    <status>
+      <basic>${basicState}</basic>
+    </status>
+    <timestamp>${timestamp}</timestamp>
+  </tuple>
+  <dm:person id="p1">
+    <rpid:activities>
+      ${activity}
+    </rpid:activities>
+  </dm:person>
+</presence>`;
+            }
+
+            sendPublish(body, contentType) {
+                if (!this.ua) {
+                    return;
+                }
+
+                try {
+                    const sipUser = document.getElementById('sipUser').value;
+                    const sipDomain = document.getElementById('sipDomain').value;
+                    const targetUri = SIP.UserAgent.makeURI(`sip:${sipUser}@${sipDomain}`);
+
+                    // Create PUBLISH request
+                    const request = this.ua.userAgentCore.makeOutgoingRequestMessage(
+                        'PUBLISH',
+                        targetUri,
+                        this.ua.configuration.uri,
+                        targetUri,
+                        {
+                            'Event': 'presence',
+                            'Expires': this.publishExpires.toString(),
+                            'Content-Type': contentType
+                        },
+                        body
+                    );
+
+                    // Send via user agent core (fire-and-forget, as userAgentCore.request doesn't return a Promise in SIP.js 0.21.2)
+                    this.ua.userAgentCore.request(request);
+
+                    this.log('PUBLISH sent', 'success');
+
+                    // Schedule refresh at 80% of expiry
+                    this.schedulePublishRefresh();
+
+                    // Update UI
+                    const badge = document.getElementById('myPresenceStatus');
+                    if (badge) {
+                        badge.textContent = `${this.myPresenceState} (${this.myCallState})`;
+                        badge.className = 'badge ms-2 ' + (this.myPresenceState === 'open' ? 'bg-success' : 'bg-secondary');
+                    }
+
+                } catch (error) {
+                    this.log(`Failed to send PUBLISH: ${error.message}`, 'error');
+                }
+            }
+
+            schedulePublishRefresh() {
+                if (this.publishTimer) {
+                    clearTimeout(this.publishTimer);
+                }
+
+                // Refresh at 80% of expiry
+                const refreshInterval = this.publishExpires * 800;
+                this.publishTimer = setTimeout(() => {
+                    this.log('Refreshing PUBLISH', 'info');
+                    this.publishBasic(this.myPresenceState);
+                }, refreshInterval);
+            }
+
+            subscribeToPresence() {
+                if (!this.ua || !this.isRegistered) {
+                    return;
+                }
+
+                const sipDomain = document.getElementById('sipDomain').value;
+
+                this.watchedExtensions.forEach(ext => {
+                    const aor = `sip:${ext}@${sipDomain}`;
+
+                    // Avoid duplicate subscriptions
+                    if (this.activeSubscribers.has(aor)) {
+                        this.log(`Already subscribed to ${aor}`, 'info');
+                        return;
+                    }
+
+                    this.log(`Subscribing to presence for ${aor}`, 'info');
+
+                    try {
+                        const targetUri = SIP.UserAgent.makeURI(aor);
+                        if (!targetUri) {
+                            this.log(`Invalid URI: ${aor}`, 'error');
+                            return;
+                        }
+
+                        // Subscribe to dialog event (primary for BLF)
+                        const subscriber = new SIP.Subscriber(this.ua, targetUri, 'dialog', {
+                            expires: this.presenceExpires
+                        });
+
+                        // Handle subscription state changes
+                        subscriber.stateChange.addListener((newState) => {
+                            this.log(`Subscription to ${ext}: ${newState}`, 'info');
+
+                            if (newState === SIP.SubscriptionState.Subscribed) {
+                                this.log(`Subscribed to ${ext}`, 'success');
+
+                                // Schedule refresh at 80% of expires
+                                const refreshInterval = this.presenceExpires * 800;
+                                const timer = setTimeout(() => {
+                                    this.log(`Refreshing subscription to ${ext}`, 'info');
+                                    subscriber.subscribe().catch(error => {
+                                        this.log(`Subscription refresh failed for ${ext}: ${error.message}`, 'error');
+                                    });
+                                }, refreshInterval);
+
+                                this.subscriptionTimers.set(aor, timer);
+
+                            } else if (newState === SIP.SubscriptionState.Terminated) {
+                                this.log(`Subscription to ${ext} terminated`, 'error');
+                                this.activeSubscribers.delete(aor);
+
+                                const timer = this.subscriptionTimers.get(aor);
+                                if (timer) {
+                                    clearTimeout(timer);
+                                    this.subscriptionTimers.delete(aor);
+                                }
+
+                                this.updatePresenceUI();
+                            }
+                        });
+
+                        // Handle NOTIFY
+                        subscriber.delegate = {
+                            onNotify: (notification) => {
+                                this.log(`NOTIFY received from ${ext}`, 'info');
+
+                                const contentType = notification.request.getHeader('Content-Type');
+                                const body = notification.request.body;
+
+                                let parsedState = null;
+                                if (contentType && contentType.includes('dialog-info+xml')) {
+                                    parsedState = this.parseDialogInfo(body, aor);
+                                } else if (contentType && contentType.includes('pidf+xml')) {
+                                    parsedState = this.parsePIDF(body, aor);
+                                }
+
+                                if (parsedState) {
+                                    this.presenceStates.set(aor, parsedState);
+                                    this.updatePresenceUI();
+                                }
+
+                                // Accept the NOTIFY
+                                notification.accept();
+                            }
+                        };
+
+                        // Send SUBSCRIBE
+                        subscriber.subscribe().then(() => {
+                            this.log(`SUBSCRIBE sent for ${ext}`, 'success');
+                            this.activeSubscribers.set(aor, subscriber);
+                            this.updatePresenceUI();
+                        }).catch(error => {
+                            this.log(`SUBSCRIBE failed for ${ext}: ${error.message}`, 'error');
+
+                            // Handle 423 Interval Too Brief
+                            if (error.message && error.message.includes('423')) {
+                                this.log('Server requires longer expires interval (423 Interval Too Brief)', 'error');
+                                this.log('Please increase the Presence Expires value and reconnect', 'error');
+                            }
+                        });
+
+                    } catch (error) {
+                        this.log(`Failed to create subscription for ${ext}: ${error.message}`, 'error');
+                    }
+                });
+            }
+
+            parseDialogInfo(xmlBody, aor) {
+                try {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(xmlBody, 'text/xml');
+
+                    // Handle parsing errors
+                    if (doc.documentElement.nodeName === 'parsererror') {
+                        this.log('Failed to parse dialog-info XML', 'error');
+                        return null;
+                    }
+
+                    const dialogInfo = doc.documentElement;
+                    const dialogs = dialogInfo.getElementsByTagName('dialog');
+
+                    let callState = 'idle';
+                    let direction = 'unknown';
+                    let remoteParty = null;
+                    let registered = null;
+
+                    if (dialogs.length === 0) {
+                        callState = 'idle';
+                    } else {
+                        // Process first active dialog
+                        for (let i = 0; i < dialogs.length; i++) {
+                            const dialog = dialogs[i];
+                            const stateElem = dialog.getElementsByTagName('state')[0];
+                            const directionAttr = dialog.getAttribute('direction');
+
+                            if (stateElem) {
+                                const state = stateElem.textContent.trim().toLowerCase();
+
+                                if (state === 'confirmed' || state === 'early') {
+                                    callState = 'in_call';
+                                    direction = directionAttr || 'unknown';
+
+                                    // Try to extract remote party
+                                    const remoteElem = dialog.getElementsByTagName('remote')[0];
+                                    if (remoteElem) {
+                                        const identityElem = remoteElem.getElementsByTagName('identity')[0];
+                                        if (identityElem) {
+                                            remoteParty = identityElem.textContent.trim();
+                                        }
+                                    }
+                                    break;
+                                } else if (state === 'trying' || state === 'proceeding') {
+                                    callState = 'ringing';
+                                    direction = directionAttr || 'unknown';
+                                    break;
+                                } else if (state === 'terminated') {
+                                    // Skip terminated dialogs
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+
+                    return {
+                        aor: aor,
+                        registered: registered,
+                        callState: callState,
+                        direction: direction,
+                        remoteParty: remoteParty,
+                        updatedAt: Date.now(),
+                        source: 'dialog'
+                    };
+
+                } catch (error) {
+                    this.log(`Error parsing dialog-info: ${error.message}`, 'error');
+                    return null;
+                }
+            }
+
+            parsePIDF(xmlBody, aor) {
+                try {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(xmlBody, 'text/xml');
+
+                    if (doc.documentElement.nodeName === 'parsererror') {
+                        this.log('Failed to parse PIDF XML', 'error');
+                        return null;
+                    }
+
+                    const presence = doc.documentElement;
+                    const tuples = presence.getElementsByTagName('tuple');
+
+                    let basicStatus = 'closed';
+                    let callState = 'unknown';
+                    let registered = null;
+
+                    if (tuples.length > 0) {
+                        const tuple = tuples[0];
+                        const statusElem = tuple.getElementsByTagName('status')[0];
+                        if (statusElem) {
+                            const basicElem = statusElem.getElementsByTagName('basic')[0];
+                            if (basicElem) {
+                                basicStatus = basicElem.textContent.trim().toLowerCase();
+                                registered = basicStatus === 'open';
+                            }
+                        }
+                    }
+
+                    // Try to extract RPID activities
+                    const personElems = presence.getElementsByTagNameNS('*', 'person');
+                    if (personElems.length > 0) {
+                        const activities = personElems[0].getElementsByTagNameNS('*', 'activities')[0];
+                        if (activities) {
+                            if (activities.getElementsByTagNameNS('*', 'on-the-phone').length > 0) {
+                                callState = 'in_call';
+                            } else if (activities.getElementsByTagNameNS('*', 'busy').length > 0) {
+                                callState = 'busy';
+                            } else if (activities.getElementsByTagNameNS('*', 'available').length > 0) {
+                                callState = 'idle';
+                            }
+                        }
+                    }
+
+                    return {
+                        aor: aor,
+                        registered: registered,
+                        callState: callState,
+                        direction: 'unknown',
+                        remoteParty: null,
+                        updatedAt: Date.now(),
+                        source: 'presence'
+                    };
+
+                } catch (error) {
+                    this.log(`Error parsing PIDF: ${error.message}`, 'error');
+                    return null;
+                }
+            }
+
+            updatePresenceUI() {
+                // Update subscription count
+                const countElem = document.getElementById('subscriptionCount');
+                if (countElem) {
+                    countElem.textContent = this.activeSubscribers.size;
+                }
+
+                // Render presence list
+                const listElem = document.getElementById('presenceList');
+                if (!listElem) return;
+
+                if (this.presenceStates.size === 0) {
+                    listElem.innerHTML = '<div class="text-muted text-center">Presence information will appear here...</div>';
+                    return;
+                }
+
+                let html = '<div class="row">';
+                this.presenceStates.forEach((state, aor) => {
+                    const extension = aor.split('@')[0].replace('sip:', '');
+
+                    let statusBadge = 'secondary';
+                    let statusText = state.callState;
+
+                    if (state.callState === 'idle') {
+                        statusBadge = 'success';
+                        statusText = 'Available';
+                    } else if (state.callState === 'in_call') {
+                        statusBadge = 'danger';
+                        statusText = 'On Call';
+                    } else if (state.callState === 'ringing') {
+                        statusBadge = 'warning';
+                        statusText = 'Ringing';
+                    } else if (state.callState === 'busy') {
+                        statusBadge = 'danger';
+                        statusText = 'Busy';
+                    }
+
+                    let directionIcon = '';
+                    if (state.direction === 'initiator') {
+                        directionIcon = '<i class="bi bi-arrow-up-circle text-primary"></i> ';
+                    } else if (state.direction === 'recipient') {
+                        directionIcon = '<i class="bi bi-arrow-down-circle text-success"></i> ';
+                    }
+
+                    const remoteInfo = state.remoteParty ? `<br><small class="text-muted">${state.remoteParty}</small>` : '';
+
+                    html += `
+                        <div class="col-md-4 col-lg-3 mb-2">
+                            <div class="card presence-card">
+                                <div class="card-body p-2">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <strong>${extension}</strong>
+                                        <span class="badge bg-${statusBadge}">${statusText}</span>
+                                    </div>
+                                    <div class="small text-muted mt-1">
+                                        ${directionIcon}${state.source}${remoteInfo}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+
+                listElem.innerHTML = html;
+            }
+
+            handleDisconnection(error) {
+                this.log('Handling disconnection...', 'info');
+
+                // Clean up presence subscriptions
+                this.cleanupPresence();
+
+                // Attempt reconnection with exponential backoff
+                if (this.reconnectAttempts < this.maxReconnectAttempts) {
+                    this.reconnectAttempts++;
+                    const backoffDelay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
+
+                    this.log(`Reconnecting in ${backoffDelay / 1000}s (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`, 'info');
+
+                    this.reconnectTimer = setTimeout(() => {
+                        this.log('Attempting reconnection...', 'info');
+                        this.connect();
+                    }, backoffDelay);
+                } else {
+                    this.log('Max reconnection attempts reached', 'error');
+                    this.reconnectAttempts = 0;
+                }
+            }
+
+            clearReconnectTimer() {
+                if (this.reconnectTimer) {
+                    clearTimeout(this.reconnectTimer);
+                    this.reconnectTimer = null;
+                }
+            }
         }
 
-        // Initialize the softphone when the page loads
+        // Initialise the softphone when the page loads
         document.addEventListener('DOMContentLoaded', () => {
             window.softphone = new SoftPhone();
         });
