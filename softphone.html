@@ -192,6 +192,13 @@
                                     </button>
                                 </div>
                             </div>
+                            <div class="row mt-2">
+                                <div class="col-12">
+                                    <button type="button" class="btn btn-info w-100" id="transferBtn" disabled>
+                                        <i class="bi bi-telephone-forward"></i> Transfer
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -204,11 +211,54 @@
                         <h5 class="mb-0">Call Information</h5>
                     </div>
                     <div class="card-body">
-                        <div id="callInfo" class="call-info mb-3">
+                        <!-- Normal single call view -->
+                        <div id="singleCallView" class="call-info mb-3">
                             <div><strong>Status:</strong> <span id="callStatus">Idle</span></div>
                             <div><strong>Remote Party:</strong> <span id="remoteParty">-</span></div>
                             <div><strong>Duration:</strong> <span id="callDuration">00:00</span></div>
                             <div><strong>Local URI:</strong> <span id="localUri">-</span></div>
+                        </div>
+
+                        <!-- Split view for attended transfer (hidden by default) -->
+                        <div id="transferSplitView" class="d-none">
+                            <div class="row">
+                                <div class="col-6">
+                                    <div class="card bg-light">
+                                        <div class="card-header py-2">
+                                            <small class="fw-bold text-muted">Primary Call (On Hold)</small>
+                                        </div>
+                                        <div class="card-body py-2">
+                                            <div><small><strong>Party:</strong> <span id="primaryCallParty">-</span></small></div>
+                                            <div><small><strong>Duration:</strong> <span id="primaryCallDuration">00:00</span></small></div>
+                                            <div><span class="badge bg-warning text-dark">On Hold</span></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="card border-success">
+                                        <div class="card-header py-2 bg-success text-white">
+                                            <small class="fw-bold">Transfer Consultation</small>
+                                        </div>
+                                        <div class="card-body py-2">
+                                            <div><small><strong>Party:</strong> <span id="transferCallParty">-</span></small></div>
+                                            <div><small><strong>Status:</strong> <span id="transferCallStatus">Calling...</span></small></div>
+                                            <div><small><strong>Duration:</strong> <span id="transferCallDuration">00:00</span></small></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row mt-2">
+                                <div class="col-6">
+                                    <button type="button" class="btn btn-success w-100" id="completeTransferBtn">
+                                        <i class="bi bi-check-circle"></i> Complete Transfer
+                                    </button>
+                                </div>
+                                <div class="col-6">
+                                    <button type="button" class="btn btn-secondary w-100" id="cancelTransferBtn">
+                                        <i class="bi bi-x-circle"></i> Cancel Transfer
+                                    </button>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- Audio Controls -->
@@ -298,6 +348,36 @@
             </div>
         </div>
 
+        <!-- Transfer Modal -->
+        <div class="modal fade" id="transferModal" tabindex="-1" aria-labelledby="transferModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header bg-info text-white">
+                        <h5 class="modal-title" id="transferModalLabel">
+                            <i class="bi bi-telephone-forward"></i> Transfer Call
+                        </h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="transferTarget" class="form-label">Transfer To:</label>
+                            <input type="text" class="form-control" id="transferTarget" placeholder="Enter phone number or extension">
+                        </div>
+                        <div class="d-grid gap-2">
+                            <button type="button" class="btn btn-primary" id="blindTransferBtn">
+                                <i class="bi bi-telephone-forward-fill"></i> Blind Transfer
+                                <small class="d-block text-light">Transfer immediately without speaking to recipient</small>
+                            </button>
+                            <button type="button" class="btn btn-success" id="attendedTransferBtn">
+                                <i class="bi bi-people"></i> Attended Transfer
+                                <small class="d-block text-light">Speak to recipient before transferring</small>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Call History Panel -->
         <div class="row mt-4">
             <div class="col-12">
@@ -351,6 +431,12 @@
                 this.maxReconnectAttempts = 5;
                 this.reconnectTimer = null;
                 this.isIntentionalDisconnect = false;
+
+                // Transfer properties
+                this.isTransferMode = false;
+                this.primarySession = null;
+                this.transferTargetSession = null;
+                this.primaryCallInfo = null;  // Stores info about the primary call during transfer
 
                 this.loadSettings();
                 this.loadCallHistory();
@@ -438,6 +524,13 @@
                 // Incoming call modal controls
                 document.getElementById('acceptCallBtn').addEventListener('click', () => this.acceptIncomingCall());
                 document.getElementById('declineCallBtn').addEventListener('click', () => this.declineIncomingCall());
+
+                // Transfer controls
+                document.getElementById('transferBtn').addEventListener('click', () => this.showTransferModal());
+                document.getElementById('blindTransferBtn').addEventListener('click', () => this.blindTransfer());
+                document.getElementById('attendedTransferBtn').addEventListener('click', () => this.startAttendedTransfer());
+                document.getElementById('completeTransferBtn').addEventListener('click', () => this.completeAttendedTransfer());
+                document.getElementById('cancelTransferBtn').addEventListener('click', () => this.cancelTransfer());
 
                 // Call history controls
                 document.getElementById('clearHistoryBtn').addEventListener('click', () => this.clearCallHistory());
@@ -693,6 +786,12 @@
                     return;
                 }
 
+                // Prevent making a new call if already on a call (unless in transfer mode)
+                if (this.currentSession && !this.isTransferMode) {
+                    this.log('Cannot make call: already on a call. Use transfer to call another party.', 'error');
+                    return;
+                }
+
                 const phoneNumber = document.getElementById('phoneNumber').value;
                 if (!phoneNumber) {
                     this.log('Please enter a phone number', 'error');
@@ -881,7 +980,34 @@
             }
 
             hangupCall() {
-                if (this.currentSession) {
+                // If in transfer mode, also hang up both sessions
+                if (this.isTransferMode) {
+                    // Hang up transfer target session
+                    if (this.transferTargetSession) {
+                        try {
+                            if (this.transferTargetSession.state === SIP.SessionState.Established) {
+                                this.transferTargetSession.bye();
+                            } else if (this.transferTargetSession.state === SIP.SessionState.Establishing) {
+                                this.transferTargetSession.cancel();
+                            }
+                        } catch (error) {
+                            this.log(`Hangup transfer call error: ${error.message}`, 'error');
+                        }
+                    }
+
+                    // Hang up primary session
+                    if (this.primarySession) {
+                        try {
+                            if (this.primarySession.state === SIP.SessionState.Established) {
+                                this.primarySession.bye();
+                            }
+                        } catch (error) {
+                            this.log(`Hangup primary call error: ${error.message}`, 'error');
+                        }
+                    }
+
+                    this.resetTransferState();
+                } else if (this.currentSession) {
                     try {
                         if (this.currentSession.state === SIP.SessionState.Established) {
                             this.currentSession.bye();
@@ -970,6 +1096,280 @@
                     }
                 } catch (error) {
                     this.log(`Alternative hold method also failed: ${error.message}`, 'error');
+                }
+            }
+
+            // Transfer Methods
+            showTransferModal() {
+                if (!this.currentSession || this.currentSession.state !== SIP.SessionState.Established) {
+                    this.log('Cannot transfer: no active call', 'error');
+                    return;
+                }
+                document.getElementById('transferTarget').value = '';
+                this.transferModal = new bootstrap.Modal(document.getElementById('transferModal'));
+                this.transferModal.show();
+            }
+
+            async blindTransfer() {
+                const targetNumber = document.getElementById('transferTarget').value.trim();
+                if (!targetNumber) {
+                    this.log('Please enter a transfer target', 'error');
+                    return;
+                }
+
+                if (!this.currentSession || this.currentSession.state !== SIP.SessionState.Established) {
+                    this.log('Cannot transfer: no active call', 'error');
+                    return;
+                }
+
+                try {
+                    const sipDomain = document.getElementById('sipDomain').value;
+                    const targetUri = SIP.UserAgent.makeURI(`sip:${targetNumber}@${sipDomain}`);
+                    if (!targetUri) {
+                        throw new Error('Invalid transfer target');
+                    }
+
+                    this.log(`Initiating blind transfer to: ${targetNumber}`);
+
+                    // Use the refer method for blind transfer
+                    await this.currentSession.refer(targetUri);
+
+                    this.log('Blind transfer initiated', 'success');
+                    this.transferModal.hide();
+
+                    // The call will be terminated by the server after successful transfer
+                } catch (error) {
+                    this.log(`Blind transfer failed: ${error.message}`, 'error');
+                }
+            }
+
+            async startAttendedTransfer() {
+                const targetNumber = document.getElementById('transferTarget').value.trim();
+                if (!targetNumber) {
+                    this.log('Please enter a transfer target', 'error');
+                    return;
+                }
+
+                if (!this.currentSession || this.currentSession.state !== SIP.SessionState.Established) {
+                    this.log('Cannot transfer: no active call', 'error');
+                    return;
+                }
+
+                try {
+                    // Store the primary call info
+                    this.primarySession = this.currentSession;
+                    this.primaryCallInfo = {
+                        remoteParty: document.getElementById('remoteParty').textContent,
+                        duration: document.getElementById('callDuration').textContent,
+                        startTime: this.callStartTime
+                    };
+
+                    // Put the primary call on hold
+                    if (!this.isOnHold) {
+                        await this.toggleHold();
+                    }
+
+                    // Hide modal and set transfer mode
+                    this.transferModal.hide();
+                    this.isTransferMode = true;
+
+                    // Switch to split view
+                    this.showTransferSplitView(targetNumber);
+
+                    // Make the consultation call
+                    this.log(`Starting attended transfer - calling: ${targetNumber}`);
+
+                    const sipDomain = document.getElementById('sipDomain').value;
+                    const targetUri = SIP.UserAgent.makeURI(`sip:${targetNumber}@${sipDomain}`);
+                    if (!targetUri) {
+                        throw new Error('Invalid transfer target');
+                    }
+
+                    const inviter = new SIP.Inviter(this.ua, targetUri);
+                    this.transferTargetSession = inviter;
+                    this.currentSession = inviter;
+
+                    this.setupTransferSessionHandlers(inviter, targetNumber);
+
+                    await inviter.invite({
+                        sessionDescriptionHandlerOptions: {
+                            constraints: { audio: true, video: false }
+                        }
+                    });
+
+                } catch (error) {
+                    this.log(`Attended transfer failed: ${error.message}`, 'error');
+                    this.cancelTransfer();
+                }
+            }
+
+            setupTransferSessionHandlers(session, targetNumber) {
+                session.stateChange.addListener((state) => {
+                    this.log(`Transfer call state: ${state}`);
+
+                    switch (state) {
+                        case SIP.SessionState.Establishing:
+                            document.getElementById('transferCallStatus').textContent = 'Calling...';
+                            break;
+                        case SIP.SessionState.Established:
+                            document.getElementById('transferCallStatus').textContent = 'Connected';
+                            this.startTransferCallTimer();
+                            this.handleTransferCallRemoteStream(session);
+                            this.log('Transfer consultation call connected', 'success');
+                            break;
+                        case SIP.SessionState.Terminated:
+                            this.log('Transfer consultation call ended', 'info');
+                            // Auto-resume primary call if transfer target hangs up
+                            if (this.isTransferMode && this.primarySession) {
+                                this.log('Transfer target disconnected - resuming primary call', 'info');
+                                this.cancelTransfer();
+                            }
+                            break;
+                    }
+                });
+            }
+
+            handleTransferCallRemoteStream(session) {
+                const remoteStream = new MediaStream();
+                session.sessionDescriptionHandler.peerConnection.getReceivers().forEach(receiver => {
+                    if (receiver.track) {
+                        remoteStream.addTrack(receiver.track);
+                    }
+                });
+
+                // Create audio element for transfer call
+                const audioContainer = document.getElementById('audioContainer');
+                const audio = document.createElement('audio');
+                audio.id = 'transferAudio';
+                audio.srcObject = remoteStream;
+                audio.autoplay = true;
+                audioContainer.appendChild(audio);
+            }
+
+            startTransferCallTimer() {
+                this.transferCallStartTime = Date.now();
+                this.transferCallTimer = setInterval(() => {
+                    const elapsed = Math.floor((Date.now() - this.transferCallStartTime) / 1000);
+                    const minutes = Math.floor(elapsed / 60).toString().padStart(2, '0');
+                    const seconds = (elapsed % 60).toString().padStart(2, '0');
+                    document.getElementById('transferCallDuration').textContent = `${minutes}:${seconds}`;
+                }, 1000);
+            }
+
+            showTransferSplitView(targetNumber) {
+                // Hide single call view, show split view
+                document.getElementById('singleCallView').classList.add('d-none');
+                document.getElementById('transferSplitView').classList.remove('d-none');
+
+                // Update primary call info
+                document.getElementById('primaryCallParty').textContent = this.primaryCallInfo.remoteParty;
+                document.getElementById('primaryCallDuration').textContent = this.primaryCallInfo.duration;
+
+                // Update transfer call info
+                document.getElementById('transferCallParty').textContent = targetNumber;
+                document.getElementById('transferCallStatus').textContent = 'Calling...';
+                document.getElementById('transferCallDuration').textContent = '00:00';
+
+                // Disable transfer button while in transfer mode
+                document.getElementById('transferBtn').disabled = true;
+            }
+
+            hideTransferSplitView() {
+                // Show single call view, hide split view
+                document.getElementById('singleCallView').classList.remove('d-none');
+                document.getElementById('transferSplitView').classList.add('d-none');
+
+                // Re-enable transfer button
+                document.getElementById('transferBtn').disabled = false;
+            }
+
+            async completeAttendedTransfer() {
+                if (!this.primarySession || !this.transferTargetSession) {
+                    this.log('Cannot complete transfer: missing sessions', 'error');
+                    return;
+                }
+
+                if (this.transferTargetSession.state !== SIP.SessionState.Established) {
+                    this.log('Cannot complete transfer: consultation call not established', 'error');
+                    return;
+                }
+
+                try {
+                    this.log('Completing attended transfer...');
+
+                    // Use REFER with the transfer target session for attended transfer
+                    await this.primarySession.refer(this.transferTargetSession);
+
+                    this.log('Attended transfer completed', 'success');
+
+                    // Clean up
+                    this.resetTransferState();
+                } catch (error) {
+                    this.log(`Attended transfer completion failed: ${error.message}`, 'error');
+                }
+            }
+
+            async cancelTransfer() {
+                this.log('Cancelling transfer...');
+
+                try {
+                    // Hang up the transfer target call if it exists
+                    if (this.transferTargetSession) {
+                        if (this.transferTargetSession.state === SIP.SessionState.Established) {
+                            this.transferTargetSession.bye();
+                        } else if (this.transferTargetSession.state === SIP.SessionState.Establishing) {
+                            this.transferTargetSession.cancel();
+                        }
+                    }
+
+                    // Remove transfer audio element
+                    const transferAudio = document.getElementById('transferAudio');
+                    if (transferAudio) {
+                        transferAudio.remove();
+                    }
+
+                    // Clear transfer call timer
+                    if (this.transferCallTimer) {
+                        clearInterval(this.transferCallTimer);
+                        this.transferCallTimer = null;
+                    }
+
+                    // Resume the primary call
+                    if (this.primarySession && this.primarySession.state === SIP.SessionState.Established) {
+                        this.currentSession = this.primarySession;
+
+                        // Resume from hold if needed
+                        if (this.isOnHold) {
+                            await this.toggleHold();
+                        }
+
+                        this.log('Primary call resumed', 'success');
+                    }
+                } catch (error) {
+                    this.log(`Error during transfer cancellation: ${error.message}`, 'error');
+                }
+
+                // Reset transfer state
+                this.resetTransferState();
+            }
+
+            resetTransferState() {
+                this.isTransferMode = false;
+                this.primarySession = null;
+                this.transferTargetSession = null;
+                this.primaryCallInfo = null;
+
+                if (this.transferCallTimer) {
+                    clearInterval(this.transferCallTimer);
+                    this.transferCallTimer = null;
+                }
+
+                // Hide split view
+                this.hideTransferSplitView();
+
+                // If no current session, clear the call
+                if (!this.currentSession || this.currentSession.state === SIP.SessionState.Terminated) {
+                    this.clearCall();
                 }
             }
 
@@ -1168,6 +1568,8 @@
             enableCallControls(enabled) {
                 document.getElementById('hangupBtn').disabled = !enabled;
                 document.getElementById('holdBtn').disabled = !enabled;
+                // Transfer button enabled only when on call and not already in transfer mode
+                document.getElementById('transferBtn').disabled = !enabled || this.isTransferMode;
                 document.querySelectorAll('.dtmf-btn').forEach(btn => {
                     btn.disabled = !enabled;
                 });
