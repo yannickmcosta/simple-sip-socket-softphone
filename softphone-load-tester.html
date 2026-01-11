@@ -1,0 +1,1164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SIP Load Tester</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <script src="./sip-0.21.2.js"></script>
+    <style>
+        .status-connected { color: #28a745; }
+        .status-disconnected { color: #dc3545; }
+        .status-connecting { color: #ffc107; }
+        .line-idle { background-color: #f8f9fa; }
+        .line-calling { background-color: #fff3cd; }
+        .line-connected { background-color: #d4edda; }
+        .line-failed { background-color: #f8d7da; }
+        .line-ended { background-color: #e2e3e5; }
+        .metrics-card { font-size: 1.5rem; font-weight: bold; }
+        .call-info { font-family: monospace; }
+    </style>
+</head>
+<body>
+    <div class="container-fluid mt-3">
+        <div class="row">
+            <div class="col-12">
+                <h2 class="text-center mb-4">SIP Load Tester</h2>
+            </div>
+        </div>
+
+        <!-- Connection Configuration -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Connection Settings</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <label for="wsServer" class="form-label">WebSocket Server</label>
+                                <input type="text" class="form-control" id="wsServer" placeholder="wss://your-server.example.com:8089/ws" value="">
+                            </div>
+                            <div class="col-md-2">
+                                <label for="sipUser" class="form-label">SIP User</label>
+                                <input type="text" class="form-control" id="sipUser" placeholder="extension" value="">
+                            </div>
+                            <div class="col-md-2">
+                                <label for="sipPassword" class="form-label">Password</label>
+                                <input type="password" class="form-control" id="sipPassword" placeholder="password">
+                            </div>
+                            <div class="col-md-2">
+                                <label for="sipDomain" class="form-label">Domain</label>
+                                <input type="text" class="form-control" id="sipDomain" placeholder="example.com" value="">
+                            </div>
+                            <div class="col-md-3 d-flex align-items-end">
+                                <button type="button" class="btn btn-primary me-2" id="connectBtn">
+                                    <i class="bi bi-plug"></i> Connect
+                                </button>
+                                <button type="button" class="btn btn-danger" id="disconnectBtn" disabled>
+                                    <i class="bi bi-plug-fill"></i> Disconnect
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Status Bar -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="alert alert-info" role="alert">
+                    <strong>Status:</strong> <span id="connectionStatus" class="status-disconnected">Disconnected</span>
+                    <span id="registrationStatus" class="ms-3"></span>
+                    <div id="errorMessage" class="mt-2" style="display: none;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Load Test Configuration -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Load Test Configuration</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <label for="targetNumber" class="form-label">Target Phone Number</label>
+                                <input type="text" class="form-control" id="targetNumber" placeholder="1234567890">
+                            </div>
+                            <div class="col-md-2">
+                                <label for="concurrentCalls" class="form-label">Concurrent Calls</label>
+                                <input type="number" class="form-control" id="concurrentCalls" min="1" max="5" value="5">
+                            </div>
+                            <div class="col-md-2">
+                                <label for="callInterval" class="form-label">Call Interval (seconds)</label>
+                                <input type="number" class="form-control" id="callInterval" min="0" max="10" step="0.1" value="1">
+                            </div>
+                            <div class="col-md-2">
+                                <label for="dtmfDelay" class="form-label">DTMF Delay (seconds)</label>
+                                <input type="number" class="form-control" id="dtmfDelay" min="0" max="30" value="2">
+                            </div>
+                            <div class="col-md-3">
+                                <label for="autoHangupDuration" class="form-label">Auto-Hangup Duration (seconds, 0=manual)</label>
+                                <input type="number" class="form-control" id="autoHangupDuration" min="0" max="300" value="30">
+                            </div>
+                        </div>
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <button type="button" class="btn btn-success btn-lg me-2" id="startTestBtn" disabled>
+                                    <i class="bi bi-play-fill"></i> Start Load Test
+                                </button>
+                                <button type="button" class="btn btn-danger btn-lg" id="hangupAllBtn" disabled>
+                                    <i class="bi bi-stop-fill"></i> Hangup All
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Audio Configuration -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Audio Playback Configuration</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <label for="audioFile" class="form-label">Audio File (WAV/MP3)</label>
+                                <input type="file" class="form-control" id="audioFile" accept="audio/*">
+                                <small class="text-muted" id="audioFileName">No file selected</small>
+                            </div>
+                            <div class="col-md-2">
+                                <label for="audioVolume" class="form-label">Volume: <span id="audioVolumeValue">50%</span></label>
+                                <input type="range" class="form-range" id="audioVolume" min="0" max="100" value="50">
+                            </div>
+                            <div class="col-md-2">
+                                <label for="audioDelay" class="form-label">Audio Delay (seconds)</label>
+                                <input type="number" class="form-control" id="audioDelay" min="0" max="30" value="1">
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">&nbsp;</label>
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="loopAudio" checked>
+                                    <label class="form-check-label" for="loopAudio">Loop Audio</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3 d-flex align-items-end">
+                                <button type="button" class="btn btn-info" id="testAudioBtn" disabled>
+                                    <i class="bi bi-volume-up"></i> Test Audio
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Metrics Dashboard -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <h6 class="card-title">Calls Attempted</h6>
+                        <div class="metrics-card text-primary" id="metricAttempted">0</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <h6 class="card-title">Successful Connections</h6>
+                        <div class="metrics-card text-success" id="metricSuccessful">0</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <h6 class="card-title">Failed Calls</h6>
+                        <div class="metrics-card text-danger" id="metricFailed">0</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <h6 class="card-title">Success Rate</h6>
+                        <div class="metrics-card text-info" id="metricSuccessRate">0%</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Call Lines Status -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Call Lines Status</h5>
+                    </div>
+                    <div class="card-body">
+                        <table class="table table-bordered">
+                            <thead>
+                                <tr>
+                                    <th>Line</th>
+                                    <th>Status</th>
+                                    <th>Call Initiated</th>
+                                    <th>Call Connected</th>
+                                    <th>Duration</th>
+                                    <th>DTMF Sent</th>
+                                    <th>Audio Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="callLinesTable">
+                                <tr class="line-idle" data-line="1">
+                                    <td>1</td>
+                                    <td><span class="badge bg-secondary">Idle</span></td>
+                                    <td>-</td>
+                                    <td>-</td>
+                                    <td>00:00</td>
+                                    <td>No</td>
+                                    <td>Not Started</td>
+                                </tr>
+                                <tr class="line-idle" data-line="2">
+                                    <td>2</td>
+                                    <td><span class="badge bg-secondary">Idle</span></td>
+                                    <td>-</td>
+                                    <td>-</td>
+                                    <td>00:00</td>
+                                    <td>No</td>
+                                    <td>Not Started</td>
+                                </tr>
+                                <tr class="line-idle" data-line="3">
+                                    <td>3</td>
+                                    <td><span class="badge bg-secondary">Idle</span></td>
+                                    <td>-</td>
+                                    <td>-</td>
+                                    <td>00:00</td>
+                                    <td>No</td>
+                                    <td>Not Started</td>
+                                </tr>
+                                <tr class="line-idle" data-line="4">
+                                    <td>4</td>
+                                    <td><span class="badge bg-secondary">Idle</span></td>
+                                    <td>-</td>
+                                    <td>-</td>
+                                    <td>00:00</td>
+                                    <td>No</td>
+                                    <td>Not Started</td>
+                                </tr>
+                                <tr class="line-idle" data-line="5">
+                                    <td>5</td>
+                                    <td><span class="badge bg-secondary">Idle</span></td>
+                                    <td>-</td>
+                                    <td>-</td>
+                                    <td>00:00</td>
+                                    <td>No</td>
+                                    <td>Not Started</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Debug Log -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">Debug Log</h6>
+                        <button class="btn btn-sm btn-outline-secondary" id="clearLogBtn">Clear Log</button>
+                    </div>
+                    <div class="card-body">
+                        <div id="debugLog" style="height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.8rem; background-color: #f8f9fa; padding: 10px; border-radius: 4px;">
+                            <div class="text-muted">Debug information will appear here...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        class LoadTester {
+            constructor() {
+                // Core SIP properties
+                this.ua = null;
+                this.isConnected = false;
+                this.isRegistered = false;
+                this.registerer = null;
+
+                // Call sessions (array of 5 lines)
+                this.sessions = [null, null, null, null, null];
+                this.lineStates = [
+                    this.createLineState(1),
+                    this.createLineState(2),
+                    this.createLineState(3),
+                    this.createLineState(4),
+                    this.createLineState(5)
+                ];
+
+                // Metrics
+                this.metrics = {
+                    attempted: 0,
+                    successful: 0,
+                    failed: 0
+                };
+
+                // Timers
+                this.durationTimers = [];
+                this.autoHangupTimers = [];
+                this.dtmfTimers = [];
+                this.audioTimers = [];
+
+                // Audio properties
+                this.audioBuffer = null;
+                this.audioContext = null;
+                this.audioFileName = null;
+                this.audioSources = [null, null, null, null, null];
+                this.audioNodes = [null, null, null, null, null];
+
+                // UI update timer
+                this.uiUpdateTimer = null;
+
+                this.loadSettings();
+                this.initializeEventListeners();
+                this.log('Load Tester initialized');
+            }
+
+            createLineState(lineNumber) {
+                return {
+                    lineNumber: lineNumber,
+                    status: 'idle',
+                    initiatedAt: null,
+                    connectedAt: null,
+                    duration: 0,
+                    dtmfSent: false,
+                    audioStatus: 'not_started'
+                };
+            }
+
+            log(message, type = 'info') {
+                const timestamp = new Date().toLocaleTimeString();
+                const logEntry = `[${timestamp}] ${message}`;
+                const debugLog = document.getElementById('debugLog');
+
+                const div = document.createElement('div');
+                div.className = `text-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'dark'}`;
+                div.textContent = logEntry;
+
+                debugLog.appendChild(div);
+                debugLog.scrollTop = debugLog.scrollHeight;
+
+                console.log(logEntry);
+            }
+
+            initializeEventListeners() {
+                // Connection controls
+                document.getElementById('connectBtn').addEventListener('click', () => this.connect());
+                document.getElementById('disconnectBtn').addEventListener('click', () => this.disconnect());
+
+                // Save settings when they change
+                document.getElementById('wsServer').addEventListener('input', () => this.saveSettings());
+                document.getElementById('sipUser').addEventListener('input', () => this.saveSettings());
+                document.getElementById('sipPassword').addEventListener('input', () => this.saveSettings());
+                document.getElementById('sipDomain').addEventListener('input', () => this.saveSettings());
+                document.getElementById('targetNumber').addEventListener('input', () => this.saveSettings());
+
+                // Load test controls
+                document.getElementById('startTestBtn').addEventListener('click', () => this.startLoadTest());
+                document.getElementById('hangupAllBtn').addEventListener('click', () => this.hangupAll());
+
+                // Audio controls
+                document.getElementById('audioFile').addEventListener('change', (e) => this.handleAudioFileSelect(e));
+                document.getElementById('audioVolume').addEventListener('input', (e) => {
+                    document.getElementById('audioVolumeValue').textContent = `${e.target.value}%`;
+                });
+                document.getElementById('testAudioBtn').addEventListener('click', () => this.testAudio());
+
+                // Debug controls
+                document.getElementById('clearLogBtn').addEventListener('click', () => this.clearLog());
+
+                // Start UI update timer
+                this.uiUpdateTimer = setInterval(() => this.updateUI(), 1000);
+            }
+
+            async connect() {
+                const wsServer = document.getElementById('wsServer').value;
+                const sipUser = document.getElementById('sipUser').value;
+                const sipPassword = document.getElementById('sipPassword').value;
+                const sipDomain = document.getElementById('sipDomain').value;
+
+                if (!wsServer || !sipUser || !sipPassword || !sipDomain) {
+                    this.log('Please fill in all connection fields', 'error');
+                    return;
+                }
+
+                this.log(`Attempting to connect to: ${wsServer}`);
+                this.updateConnectionStatus('connecting');
+
+                try {
+                    const uri = SIP.UserAgent.makeURI(`sip:${sipUser}@${sipDomain}`);
+                    if (!uri) {
+                        throw new Error(`Failed to create SIP URI from: sip:${sipUser}@${sipDomain}`);
+                    }
+
+                    this.log(`Created SIP URI: ${uri.toString()}`);
+
+                    const transportOptions = {
+                        server: wsServer,
+                        connectionTimeout: 10000,
+                        maxReconnectionAttempts: 3,
+                        reconnectionTimeout: 4000
+                    };
+
+                    const userAgentOptions = {
+                        uri: uri,
+                        transportOptions: transportOptions,
+                        authorizationUsername: sipUser,
+                        authorizationPassword: sipPassword,
+                        sessionDescriptionHandlerFactoryOptions: {
+                            constraints: {
+                                audio: false,  // Don't capture microphone
+                                video: false
+                            },
+                            peerConnectionConfiguration: {
+                                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                            }
+                        }
+                    };
+
+                    this.ua = new SIP.UserAgent(userAgentOptions);
+
+                    this.ua.delegate = {
+                        onConnect: () => {
+                            this.log('WebSocket connection established successfully', 'success');
+                            this.isConnected = true;
+                            this.updateConnectionStatus('connected');
+                            this.register();
+                        },
+                        onDisconnect: (error) => {
+                            const errorMsg = error ? error.message : 'Unknown disconnection reason';
+                            this.log(`WebSocket disconnected: ${errorMsg}`, 'error');
+                            this.isConnected = false;
+                            this.isRegistered = false;
+                            this.updateConnectionStatus('disconnected');
+                            this.updateRegistrationStatus('');
+                        }
+                    };
+
+                    this.log('Starting SIP UserAgent...');
+                    await this.ua.start();
+                    this.log('UserAgent started successfully', 'success');
+
+                } catch (error) {
+                    this.log(`Connection failed: ${error.message}`, 'error');
+                    this.updateConnectionStatus('disconnected');
+                    this.showError(`Connection failed: ${error.message}`);
+                }
+            }
+
+            async register() {
+                if (!this.ua) return;
+
+                try {
+                    this.log('Starting SIP registration process...');
+                    const registerer = new SIP.Registerer(this.ua);
+
+                    registerer.stateChange.addListener((newState) => {
+                        this.log(`Registration state changed: ${newState}`, newState === SIP.RegistererState.Registered ? 'success' : 'info');
+
+                        if (newState === SIP.RegistererState.Registered) {
+                            this.isRegistered = true;
+                            this.updateRegistrationStatus('Registered');
+                            this.enableControls(true);
+                            this.log('Successfully registered with SIP server', 'success');
+                        } else if (newState === SIP.RegistererState.Unregistered) {
+                            this.isRegistered = false;
+                            this.updateRegistrationStatus('Unregistered');
+                            this.enableControls(false);
+                            this.log('SIP registration lost', 'error');
+                        }
+                    });
+
+                    this.log('Sending REGISTER request...');
+                    await registerer.register();
+                    this.registerer = registerer;
+
+                } catch (error) {
+                    this.log(`Registration failed: ${error.message}`, 'error');
+                    this.showError(`Registration failed: ${error.message}`);
+                }
+            }
+
+            async disconnect() {
+                this.hangupAll();
+
+                if (this.registerer) {
+                    try {
+                        await this.registerer.unregister();
+                    } catch (error) {
+                        this.log(`Unregistration error: ${error.message}`, 'error');
+                    }
+                }
+
+                if (this.ua) {
+                    await this.ua.stop();
+                    this.ua = null;
+                }
+
+                this.isConnected = false;
+                this.isRegistered = false;
+                this.updateConnectionStatus('disconnected');
+                this.updateRegistrationStatus('');
+                this.enableControls(false);
+                this.log('Disconnected', 'info');
+            }
+
+            async startLoadTest() {
+                if (!this.isRegistered) {
+                    this.log('Cannot start test: not registered', 'error');
+                    return;
+                }
+
+                const targetNumber = document.getElementById('targetNumber').value;
+                if (!targetNumber) {
+                    this.log('Please enter a target phone number', 'error');
+                    return;
+                }
+
+                const concurrentCalls = parseInt(document.getElementById('concurrentCalls').value);
+                const callInterval = parseFloat(document.getElementById('callInterval').value) * 1000; // Convert to ms
+
+                this.log(`Starting load test: ${concurrentCalls} calls to ${targetNumber}`, 'success');
+
+                // Reset metrics
+                this.metrics.attempted = 0;
+                this.metrics.successful = 0;
+                this.metrics.failed = 0;
+                this.updateMetrics();
+
+                // Disable start button during test
+                document.getElementById('startTestBtn').disabled = true;
+                document.getElementById('hangupAllBtn').disabled = false;
+
+                // Make calls with staggered intervals
+                for (let i = 0; i < concurrentCalls; i++) {
+                    setTimeout(() => {
+                        this.makeCall(i, targetNumber);
+                    }, i * callInterval);
+                }
+            }
+
+            makeCall(lineIndex, phoneNumber) {
+                if (lineIndex >= 5) {
+                    this.log(`Invalid line index: ${lineIndex}`, 'error');
+                    return;
+                }
+
+                try {
+                    const sipDomain = document.getElementById('sipDomain').value;
+                    const targetUri = SIP.UserAgent.makeURI(`sip:${phoneNumber}@${sipDomain}`);
+                    if (!targetUri) {
+                        throw new Error('Invalid phone number');
+                    }
+
+                    this.log(`Line ${lineIndex + 1}: Making call to ${phoneNumber}`);
+                    this.metrics.attempted++;
+                    this.updateMetrics();
+
+                    const inviter = new SIP.Inviter(this.ua, targetUri);
+                    this.sessions[lineIndex] = inviter;
+
+                    // Update line state
+                    this.lineStates[lineIndex].status = 'calling';
+                    this.lineStates[lineIndex].initiatedAt = new Date();
+                    this.lineStates[lineIndex].connectedAt = null;
+                    this.lineStates[lineIndex].duration = 0;
+                    this.lineStates[lineIndex].dtmfSent = false;
+
+                    this.setupSessionHandlers(inviter, lineIndex);
+
+                    // Create a silent audio track to use initially
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const oscillator = audioContext.createOscillator();
+                    oscillator.frequency.value = 0; // Silent
+                    const destination = audioContext.createMediaStreamDestination();
+                    oscillator.connect(destination);
+                    oscillator.start();
+
+                    const silentStream = destination.stream;
+
+                    inviter.invite({
+                        sessionDescriptionHandlerOptions: {
+                            constraints: { audio: false, video: false },
+                            streams: [silentStream]
+                        }
+                    });
+
+                    this.updateLineUI(lineIndex);
+
+                } catch (error) {
+                    this.log(`Line ${lineIndex + 1}: Call failed: ${error.message}`, 'error');
+                    this.lineStates[lineIndex].status = 'failed';
+                    this.metrics.failed++;
+                    this.updateMetrics();
+                    this.updateLineUI(lineIndex);
+                }
+            }
+
+            setupSessionHandlers(session, lineIndex) {
+                session.stateChange.addListener((newState) => {
+                    this.log(`Line ${lineIndex + 1}: Call state: ${newState}`, 'info');
+
+                    switch (newState) {
+                        case SIP.SessionState.Establishing:
+                            this.lineStates[lineIndex].status = 'calling';
+                            this.updateLineUI(lineIndex);
+                            break;
+                        case SIP.SessionState.Established:
+                            this.lineStates[lineIndex].status = 'connected';
+                            this.lineStates[lineIndex].connectedAt = new Date();
+                            this.metrics.successful++;
+                            this.updateMetrics();
+                            this.updateLineUI(lineIndex);
+                            this.log(`Line ${lineIndex + 1}: Call connected`, 'success');
+
+                            // Schedule auto DTMF
+                            this.scheduleAutoDTMF(lineIndex);
+
+                            // Schedule auto hangup if configured
+                            this.scheduleAutoHangup(lineIndex);
+                            break;
+                        case SIP.SessionState.Terminated:
+                            this.lineStates[lineIndex].status = 'ended';
+                            this.updateLineUI(lineIndex);
+                            this.log(`Line ${lineIndex + 1}: Call ended`, 'info');
+
+                            // Clear timers for this line
+                            this.clearLineTimers(lineIndex);
+
+                            // Check if we had a connection, if not count as failed
+                            if (!this.lineStates[lineIndex].connectedAt) {
+                                this.metrics.failed++;
+                                this.lineStates[lineIndex].status = 'failed';
+                                this.updateMetrics();
+                                this.updateLineUI(lineIndex);
+                            }
+
+                            // Clear session
+                            this.sessions[lineIndex] = null;
+
+                            // Re-enable start button if all calls are done
+                            this.checkAllCallsEnded();
+                            break;
+                    }
+                });
+            }
+
+            scheduleAutoDTMF(lineIndex) {
+                const dtmfDelay = parseInt(document.getElementById('dtmfDelay').value) * 1000;
+
+                this.dtmfTimers[lineIndex] = setTimeout(() => {
+                    this.sendDTMF(lineIndex, '2');
+                }, dtmfDelay);
+            }
+
+            scheduleAutoHangup(lineIndex) {
+                const duration = parseInt(document.getElementById('autoHangupDuration').value);
+
+                if (duration > 0) {
+                    this.autoHangupTimers[lineIndex] = setTimeout(() => {
+                        this.log(`Line ${lineIndex + 1}: Auto-hangup triggered`, 'info');
+                        this.hangupLine(lineIndex);
+                    }, duration * 1000);
+                }
+            }
+
+            sendDTMF(lineIndex, tone) {
+                const session = this.sessions[lineIndex];
+
+                if (!session || session.state !== SIP.SessionState.Established) {
+                    this.log(`Line ${lineIndex + 1}: Cannot send DTMF: call not established`, 'error');
+                    return;
+                }
+
+                try {
+                    const options = { duration: 100, gap: 50 };
+                    session.sessionDescriptionHandler.sendDtmf(tone, options);
+                    this.lineStates[lineIndex].dtmfSent = true;
+                    this.log(`Line ${lineIndex + 1}: DTMF sent: ${tone}`, 'success');
+                    this.updateLineUI(lineIndex);
+
+                    // Schedule audio playback after DTMF
+                    this.scheduleAudioPlayback(lineIndex);
+                } catch (error) {
+                    this.log(`Line ${lineIndex + 1}: DTMF failed: ${error.message}`, 'error');
+                }
+            }
+
+            // ==================== Audio Methods ====================
+
+            async handleAudioFileSelect(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                this.log(`Loading audio file: ${file.name}`, 'info');
+                document.getElementById('audioFileName').textContent = file.name;
+                this.audioFileName = file.name;
+
+                try {
+                    await this.loadAudioFile(file);
+                    document.getElementById('testAudioBtn').disabled = false;
+                    this.log('Audio file loaded successfully', 'success');
+                } catch (error) {
+                    this.log(`Failed to load audio file: ${error.message}`, 'error');
+                    document.getElementById('testAudioBtn').disabled = true;
+                }
+            }
+
+            async loadAudioFile(file) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+
+                    reader.onload = async (e) => {
+                        try {
+                            // Create audio context if not exists
+                            if (!this.audioContext) {
+                                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                            }
+
+                            // Decode audio data
+                            this.audioBuffer = await this.audioContext.decodeAudioData(e.target.result);
+                            resolve();
+                        } catch (error) {
+                            reject(new Error(`Failed to decode audio: ${error.message}`));
+                        }
+                    };
+
+                    reader.onerror = () => {
+                        reject(new Error('Failed to read file'));
+                    };
+
+                    reader.readAsArrayBuffer(file);
+                });
+            }
+
+            scheduleAudioPlayback(lineIndex) {
+                if (!this.audioBuffer) {
+                    this.log(`Line ${lineIndex + 1}: No audio file loaded, skipping audio playback`, 'info');
+                    return;
+                }
+
+                const audioDelay = parseInt(document.getElementById('audioDelay').value) * 1000;
+
+                this.audioTimers[lineIndex] = setTimeout(() => {
+                    this.playAudio(lineIndex);
+                }, audioDelay);
+            }
+
+            async playAudio(lineIndex) {
+                const session = this.sessions[lineIndex];
+
+                if (!session || session.state !== SIP.SessionState.Established) {
+                    this.log(`Line ${lineIndex + 1}: Cannot play audio: call not established`, 'error');
+                    return;
+                }
+
+                if (!this.audioBuffer) {
+                    this.log(`Line ${lineIndex + 1}: No audio file loaded`, 'error');
+                    return;
+                }
+
+                try {
+                    this.log(`Line ${lineIndex + 1}: Starting audio playback`, 'info');
+                    this.lineStates[lineIndex].audioStatus = 'playing';
+                    this.updateLineUI(lineIndex);
+
+                    // Get session description handler
+                    const sdh = session.sessionDescriptionHandler;
+                    if (!sdh || !sdh.peerConnection) {
+                        throw new Error('No peer connection available');
+                    }
+
+                    // Create audio nodes
+                    const source = this.audioContext.createBufferSource();
+                    source.buffer = this.audioBuffer;
+
+                    const loopAudio = document.getElementById('loopAudio').checked;
+                    source.loop = loopAudio;
+
+                    const gainNode = this.audioContext.createGain();
+                    const volume = document.getElementById('audioVolume').value / 100;
+                    gainNode.gain.value = volume;
+
+                    const destination = this.audioContext.createMediaStreamDestination();
+
+                    // Connect nodes: source -> gain -> destination
+                    source.connect(gainNode);
+                    gainNode.connect(destination);
+
+                    // Get the audio track from the destination
+                    const audioTrack = destination.stream.getAudioTracks()[0];
+
+                    // Get all senders and find audio sender
+                    const senders = sdh.peerConnection.getSenders();
+                    let audioSender = senders.find(sender => sender.track && sender.track.kind === 'audio');
+
+                    if (audioSender) {
+                        // Replace the existing track with our audio file track
+                        const originalTrack = audioSender.track;
+                        await audioSender.replaceTrack(audioTrack);
+                        this.log(`Line ${lineIndex + 1}: Audio track replaced successfully`, 'success');
+
+                        // Store original track reference
+                        this.audioNodes[lineIndex] = { source, gainNode, destination, originalTrack };
+                    } else {
+                        // No audio sender exists, add one
+                        try {
+                            audioSender = sdh.peerConnection.addTrack(audioTrack, destination.stream);
+                            this.log(`Line ${lineIndex + 1}: Audio track added successfully`, 'success');
+                            this.audioNodes[lineIndex] = { source, gainNode, destination, originalTrack: null };
+                        } catch (addError) {
+                            throw new Error(`Failed to add audio track: ${addError.message}`);
+                        }
+                    }
+
+                    // Store source reference
+                    this.audioSources[lineIndex] = source;
+
+                    // Start playing
+                    source.start(0);
+
+                    // Handle source end (if not looping)
+                    source.onended = () => {
+                        if (!loopAudio) {
+                            this.lineStates[lineIndex].audioStatus = 'stopped';
+                            this.updateLineUI(lineIndex);
+                            this.log(`Line ${lineIndex + 1}: Audio playback completed`, 'info');
+                        }
+                    };
+
+                } catch (error) {
+                    this.log(`Line ${lineIndex + 1}: Audio playback failed: ${error.message}`, 'error');
+                    this.lineStates[lineIndex].audioStatus = 'error';
+                    this.updateLineUI(lineIndex);
+                }
+            }
+
+            async stopAudio(lineIndex) {
+                if (this.audioSources[lineIndex]) {
+                    try {
+                        this.audioSources[lineIndex].stop();
+                        this.audioSources[lineIndex] = null;
+
+                        // Restore original track if available
+                        if (this.audioNodes[lineIndex] && this.audioNodes[lineIndex].originalTrack) {
+                            const session = this.sessions[lineIndex];
+                            if (session && session.sessionDescriptionHandler) {
+                                const sdh = session.sessionDescriptionHandler;
+                                const senders = sdh.peerConnection.getSenders();
+                                const audioSender = senders.find(sender => sender.track && sender.track.kind === 'audio');
+
+                                if (audioSender) {
+                                    await audioSender.replaceTrack(this.audioNodes[lineIndex].originalTrack);
+                                }
+                            }
+                        }
+
+                        this.audioNodes[lineIndex] = null;
+                        this.lineStates[lineIndex].audioStatus = 'stopped';
+                        this.updateLineUI(lineIndex);
+                        this.log(`Line ${lineIndex + 1}: Audio stopped`, 'info');
+                    } catch (error) {
+                        this.log(`Line ${lineIndex + 1}: Error stopping audio: ${error.message}`, 'error');
+                    }
+                }
+            }
+
+            testAudio() {
+                if (!this.audioBuffer) {
+                    this.log('No audio file loaded', 'error');
+                    return;
+                }
+
+                try {
+                    const source = this.audioContext.createBufferSource();
+                    source.buffer = this.audioBuffer;
+
+                    const gainNode = this.audioContext.createGain();
+                    const volume = document.getElementById('audioVolume').value / 100;
+                    gainNode.gain.value = volume;
+
+                    source.connect(gainNode);
+                    gainNode.connect(this.audioContext.destination);
+
+                    source.start(0);
+                    this.log('Playing audio test (first 5 seconds)', 'info');
+
+                    // Stop after 5 seconds for test
+                    setTimeout(() => {
+                        try {
+                            source.stop();
+                        } catch (e) {
+                            // Ignore if already stopped
+                        }
+                    }, 5000);
+                } catch (error) {
+                    this.log(`Audio test failed: ${error.message}`, 'error');
+                }
+            }
+
+            // ==================== Call Management ====================
+
+            hangupLine(lineIndex) {
+                const session = this.sessions[lineIndex];
+
+                if (session) {
+                    try {
+                        if (session.state === SIP.SessionState.Established) {
+                            session.bye();
+                        } else if (session.state === SIP.SessionState.Establishing) {
+                            session.cancel();
+                        }
+                    } catch (error) {
+                        this.log(`Line ${lineIndex + 1}: Hangup error: ${error.message}`, 'error');
+                    }
+                }
+
+                this.clearLineTimers(lineIndex);
+            }
+
+            hangupAll() {
+                this.log('Hanging up all calls', 'info');
+
+                for (let i = 0; i < 5; i++) {
+                    if (this.sessions[i]) {
+                        this.hangupLine(i);
+                    }
+                }
+
+                document.getElementById('hangupAllBtn').disabled = true;
+                this.checkAllCallsEnded();
+            }
+
+            clearLineTimers(lineIndex) {
+                if (this.dtmfTimers[lineIndex]) {
+                    clearTimeout(this.dtmfTimers[lineIndex]);
+                    this.dtmfTimers[lineIndex] = null;
+                }
+
+                if (this.autoHangupTimers[lineIndex]) {
+                    clearTimeout(this.autoHangupTimers[lineIndex]);
+                    this.autoHangupTimers[lineIndex] = null;
+                }
+
+                if (this.audioTimers[lineIndex]) {
+                    clearTimeout(this.audioTimers[lineIndex]);
+                    this.audioTimers[lineIndex] = null;
+                }
+
+                // Stop audio if playing
+                this.stopAudio(lineIndex);
+            }
+
+            checkAllCallsEnded() {
+                const allEnded = this.sessions.every(session => session === null);
+
+                if (allEnded) {
+                    document.getElementById('startTestBtn').disabled = false;
+                    document.getElementById('hangupAllBtn').disabled = true;
+                    this.log('Load test completed', 'success');
+                }
+            }
+
+            updateUI() {
+                for (let i = 0; i < 5; i++) {
+                    // Update duration for connected calls
+                    if (this.lineStates[i].status === 'connected' && this.lineStates[i].connectedAt) {
+                        this.lineStates[i].duration = Math.floor((new Date() - this.lineStates[i].connectedAt) / 1000);
+                        this.updateLineUI(i);
+                    }
+                }
+            }
+
+            updateLineUI(lineIndex) {
+                const row = document.querySelector(`tr[data-line="${lineIndex + 1}"]`);
+                const lineState = this.lineStates[lineIndex];
+
+                if (!row) return;
+
+                // Update row class
+                row.className = `line-${lineState.status}`;
+
+                // Update status badge
+                const statusCell = row.cells[1];
+                let badgeClass = 'bg-secondary';
+                let statusText = 'Idle';
+
+                switch (lineState.status) {
+                    case 'calling':
+                        badgeClass = 'bg-warning';
+                        statusText = 'Calling';
+                        break;
+                    case 'connected':
+                        badgeClass = 'bg-success';
+                        statusText = 'Connected';
+                        break;
+                    case 'failed':
+                        badgeClass = 'bg-danger';
+                        statusText = 'Failed';
+                        break;
+                    case 'ended':
+                        badgeClass = 'bg-secondary';
+                        statusText = 'Ended';
+                        break;
+                }
+
+                statusCell.innerHTML = `<span class="badge ${badgeClass}">${statusText}</span>`;
+
+                // Update timestamps
+                row.cells[2].textContent = lineState.initiatedAt ? lineState.initiatedAt.toLocaleTimeString() : '-';
+                row.cells[3].textContent = lineState.connectedAt ? lineState.connectedAt.toLocaleTimeString() : '-';
+
+                // Update duration
+                const minutes = Math.floor(lineState.duration / 60).toString().padStart(2, '0');
+                const seconds = (lineState.duration % 60).toString().padStart(2, '0');
+                row.cells[4].textContent = `${minutes}:${seconds}`;
+
+                // Update DTMF status
+                row.cells[5].textContent = lineState.dtmfSent ? 'Yes' : 'No';
+
+                // Update audio status
+                let audioStatusText = 'Not Started';
+                switch (lineState.audioStatus) {
+                    case 'playing':
+                        audioStatusText = 'Playing';
+                        break;
+                    case 'stopped':
+                        audioStatusText = 'Stopped';
+                        break;
+                    case 'error':
+                        audioStatusText = 'Error';
+                        break;
+                }
+                row.cells[6].textContent = audioStatusText;
+            }
+
+            updateMetrics() {
+                document.getElementById('metricAttempted').textContent = this.metrics.attempted;
+                document.getElementById('metricSuccessful').textContent = this.metrics.successful;
+                document.getElementById('metricFailed').textContent = this.metrics.failed;
+
+                const successRate = this.metrics.attempted > 0
+                    ? Math.round((this.metrics.successful / this.metrics.attempted) * 100)
+                    : 0;
+                document.getElementById('metricSuccessRate').textContent = `${successRate}%`;
+            }
+
+            updateConnectionStatus(status) {
+                const statusElement = document.getElementById('connectionStatus');
+                statusElement.className = `status-${status}`;
+                statusElement.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+
+                document.getElementById('connectBtn').disabled = status === 'connected' || status === 'connecting';
+                document.getElementById('disconnectBtn').disabled = status === 'disconnected';
+            }
+
+            updateRegistrationStatus(status) {
+                document.getElementById('registrationStatus').textContent = status;
+            }
+
+            enableControls(enabled) {
+                document.getElementById('startTestBtn').disabled = !enabled;
+            }
+
+            showError(message) {
+                const errorDiv = document.getElementById('errorMessage');
+                errorDiv.textContent = message;
+                errorDiv.style.display = 'block';
+
+                setTimeout(() => {
+                    errorDiv.style.display = 'none';
+                }, 5000);
+            }
+
+            clearLog() {
+                const debugLog = document.getElementById('debugLog');
+                debugLog.innerHTML = '<div class="text-muted">Debug information will appear here...</div>';
+            }
+
+            loadSettings() {
+                try {
+                    const savedSettings = localStorage.getItem('load-tester-settings');
+                    if (savedSettings) {
+                        const settings = JSON.parse(savedSettings);
+
+                        if (settings.wsServer) document.getElementById('wsServer').value = settings.wsServer;
+                        if (settings.sipUser) document.getElementById('sipUser').value = settings.sipUser;
+                        if (settings.sipPassword) document.getElementById('sipPassword').value = settings.sipPassword;
+                        if (settings.sipDomain) document.getElementById('sipDomain').value = settings.sipDomain;
+                        if (settings.targetNumber) document.getElementById('targetNumber').value = settings.targetNumber;
+
+                        // Load audio settings
+                        if (settings.audioVolume !== undefined) {
+                            document.getElementById('audioVolume').value = settings.audioVolume;
+                            document.getElementById('audioVolumeValue').textContent = `${settings.audioVolume}%`;
+                        }
+                        if (settings.audioDelay !== undefined) {
+                            document.getElementById('audioDelay').value = settings.audioDelay;
+                        }
+                        if (settings.loopAudio !== undefined) {
+                            document.getElementById('loopAudio').checked = settings.loopAudio;
+                        }
+                        if (settings.audioFileName) {
+                            document.getElementById('audioFileName').textContent = settings.audioFileName;
+                        }
+
+                        this.log('Settings loaded from localStorage', 'success');
+                    }
+                } catch (error) {
+                    this.log(`Failed to load settings: ${error.message}`, 'error');
+                }
+            }
+
+            saveSettings() {
+                try {
+                    const settings = {
+                        wsServer: document.getElementById('wsServer').value,
+                        sipUser: document.getElementById('sipUser').value,
+                        sipPassword: document.getElementById('sipPassword').value,
+                        sipDomain: document.getElementById('sipDomain').value,
+                        targetNumber: document.getElementById('targetNumber').value,
+                        audioVolume: parseInt(document.getElementById('audioVolume').value),
+                        audioDelay: parseInt(document.getElementById('audioDelay').value),
+                        loopAudio: document.getElementById('loopAudio').checked,
+                        audioFileName: this.audioFileName
+                    };
+
+                    localStorage.setItem('load-tester-settings', JSON.stringify(settings));
+                } catch (error) {
+                    this.log(`Failed to save settings: ${error.message}`, 'error');
+                }
+            }
+        }
+
+        // Initialize the load tester when the page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            window.loadTester = new LoadTester();
+        });
+    </script>
+</body>
+</html>

@@ -1543,18 +1543,28 @@
                     const sipDomain = document.getElementById('sipDomain').value;
                     const targetUri = SIP.UserAgent.makeURI(`sip:${sipUser}@${sipDomain}`);
 
-                    // Create PUBLISH request
+                    // Prepare extra headers as array of strings
+                    const extraHeaders = [
+                        'Event: presence',
+                        'Expires: ' + this.publishExpires.toString()
+                    ];
+
+                    // Prepare body object with proper structure for SIP.js
+                    const bodyObj = {
+                        contentDisposition: 'render',
+                        contentType: contentType,
+                        content: body
+                    };
+
+                    // Create PUBLISH request with correct parameter order
                     const request = this.ua.userAgentCore.makeOutgoingRequestMessage(
                         'PUBLISH',
                         targetUri,
                         this.ua.configuration.uri,
                         targetUri,
-                        {
-                            'Event': 'presence',
-                            'Expires': this.publishExpires.toString(),
-                            'Content-Type': contentType
-                        },
-                        body
+                        {},           // options (5th parameter)
+                        extraHeaders, // extraHeaders array (6th parameter)
+                        bodyObj       // body object (7th parameter)
                     );
 
                     // Send via user agent core (fire-and-forget, as userAgentCore.request doesn't return a Promise in SIP.js 0.21.2)
@@ -1661,7 +1671,20 @@
                                 const body = notification.request.body;
 
                                 let parsedState = null;
-                                if (contentType && contentType.includes('dialog-info+xml')) {
+
+                                // Handle empty NOTIFY (no active dialogs = idle)
+                                if (!body || body.length === 0) {
+                                    this.log(`Empty NOTIFY body - assuming idle state`, 'info');
+                                    parsedState = {
+                                        aor: aor,
+                                        registered: true,
+                                        callState: 'idle',
+                                        direction: 'unknown',
+                                        remoteParty: null,
+                                        updatedAt: Date.now(),
+                                        source: 'dialog'
+                                    };
+                                } else if (contentType && contentType.includes('dialog-info+xml')) {
                                     parsedState = this.parseDialogInfo(body, aor);
                                 } else if (contentType && contentType.includes('pidf+xml')) {
                                     parsedState = this.parsePIDF(body, aor);
