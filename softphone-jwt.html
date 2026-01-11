@@ -94,6 +94,17 @@
                                 </div>
                             </div>
                         </div>
+                        <div class="row mt-2">
+                            <div class="col-md-6">
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="sipInstanceEnabled" checked>
+                                    <label class="form-check-label fw-bold" for="sipInstanceEnabled">
+                                        <i class="bi bi-fingerprint"></i> Use +sip.instance
+                                    </label>
+                                    <small class="text-muted d-block">Prevents duplicate contact registrations</small>
+                                </div>
+                            </div>
+                        </div>
                         <div class="row mt-2" id="turnSettingsRow" style="display: none;">
                             <div class="col-md-4">
                                 <label for="turnServer" class="form-label">TURN Server</label>
@@ -513,6 +524,9 @@
                 document.getElementById('turnUsername').addEventListener('input', () => this.saveSettings());
                 document.getElementById('turnCredential').addEventListener('input', () => this.saveSettings());
 
+                // SIP instance toggle
+                document.getElementById('sipInstanceEnabled').addEventListener('change', () => this.saveSettings());
+
                 // Connection controls
                 document.getElementById('connectBtn').addEventListener('click', () => this.connect());
                 document.getElementById('disconnectBtn').addEventListener('click', () => this.disconnect());
@@ -720,22 +734,11 @@
                     const iceServers = this.buildIceServers();
                     this.log(`ICE servers configured: ${iceServers.length} server(s)`, 'info');
 
-                    // Generate or retrieve instance ID for +sip.instance parameter
-                    // This ensures re-registrations replace old contacts rather than adding new ones
-                    let instanceId = localStorage.getItem('sipphone-instance-id');
-                    if (!instanceId) {
-                        instanceId = crypto.randomUUID();
-                        localStorage.setItem('sipphone-instance-id', instanceId);
-                    }
-
                     // UserAgent options WITHOUT Digest authentication
                     const userAgentOptions = {
                         uri: uri,
                         transportOptions: transportOptions,
                         // NO authorizationUsername or authorizationPassword - using JWT instead
-                        contactParams: {
-                            '+sip.instance': `"<urn:uuid:${instanceId}>"`
-                        },
                         sessionDescriptionHandlerFactoryOptions: {
                             constraints: {
                                 audio: true,
@@ -746,6 +749,21 @@
                             }
                         }
                     };
+
+                    // Conditionally add +sip.instance parameter based on toggle
+                    if (document.getElementById('sipInstanceEnabled').checked) {
+                        let instanceId = localStorage.getItem('sipphone-instance-id');
+                        if (!instanceId) {
+                            instanceId = crypto.randomUUID();
+                            localStorage.setItem('sipphone-instance-id', instanceId);
+                        }
+                        userAgentOptions.contactParams = {
+                            '+sip.instance': `"<urn:uuid:${instanceId}>"`
+                        };
+                        this.log(`Using +sip.instance: ${instanceId}`, 'info');
+                    } else {
+                        this.log('+sip.instance disabled', 'info');
+                    }
 
                     this.log('Creating SIP UserAgent with JWT authentication:', 'info');
                     this.log(`- Server: ${transportOptions.server}`, 'info');
@@ -1903,6 +1921,9 @@
                             document.getElementById('presenceEnabled').checked = settings.presenceEnabled;
                             this.togglePresenceSettings(settings.presenceEnabled);
                         }
+                        if (settings.sipInstanceEnabled !== undefined) {
+                            document.getElementById('sipInstanceEnabled').checked = settings.sipInstanceEnabled;
+                        }
                         if (settings.presenceSubscriptions) document.getElementById('presenceSubscriptions').value = settings.presenceSubscriptions;
                         if (settings.presenceExpires) document.getElementById('presenceExpires').value = settings.presenceExpires;
                         if (settings.publishExpires) document.getElementById('publishExpires').value = settings.publishExpires;
@@ -1929,6 +1950,7 @@
                         jwtToken: document.getElementById('jwtToken').value,
                         sipDomain: document.getElementById('sipDomain').value,
                         presenceEnabled: document.getElementById('presenceEnabled').checked,
+                        sipInstanceEnabled: document.getElementById('sipInstanceEnabled').checked,
                         presenceSubscriptions: document.getElementById('presenceSubscriptions').value,
                         presenceExpires: document.getElementById('presenceExpires').value,
                         publishExpires: document.getElementById('publishExpires').value,

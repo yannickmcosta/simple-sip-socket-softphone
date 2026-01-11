@@ -66,12 +66,21 @@
                             </div>
                         </div>
                         <div class="row mt-3">
-                            <div class="col-md-12">
+                            <div class="col-md-6">
                                 <div class="form-check">
                                     <input type="checkbox" class="form-check-input" id="presenceEnabled">
                                     <label class="form-check-label fw-bold" for="presenceEnabled">
                                         <i class="bi bi-eye"></i> Enable Presence & BLF
                                     </label>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="sipInstanceEnabled" checked>
+                                    <label class="form-check-label fw-bold" for="sipInstanceEnabled">
+                                        <i class="bi bi-fingerprint"></i> Use +sip.instance
+                                    </label>
+                                    <small class="text-muted d-block">Prevents duplicate contact registrations</small>
                                 </div>
                             </div>
                         </div>
@@ -479,6 +488,7 @@
                 document.getElementById('presenceSubscriptions').addEventListener('input', () => this.saveSettings());
                 document.getElementById('presenceExpires').addEventListener('input', () => this.saveSettings());
                 document.getElementById('publishExpires').addEventListener('input', () => this.saveSettings());
+                document.getElementById('sipInstanceEnabled').addEventListener('change', () => this.saveSettings());
 
                 // Dialer controls
                 document.getElementById('callBtn').addEventListener('click', () => this.makeCall());
@@ -589,22 +599,11 @@
                         reconnectionTimeout: 4000
                     };
 
-                    // Generate or retrieve instance ID for +sip.instance parameter
-                    // This ensures re-registrations replace old contacts rather than adding new ones
-                    let instanceId = localStorage.getItem('sipphone-instance-id');
-                    if (!instanceId) {
-                        instanceId = crypto.randomUUID();
-                        localStorage.setItem('sipphone-instance-id', instanceId);
-                    }
-
                     const userAgentOptions = {
                         uri: uri,
                         transportOptions: transportOptions,
                         authorizationUsername: sipUser,
                         authorizationPassword: sipPassword,
-                        contactParams: {
-                            '+sip.instance': `"<urn:uuid:${instanceId}>"`
-                        },
                         sessionDescriptionHandlerFactoryOptions: {
                             constraints: {
                                 audio: true,
@@ -615,6 +614,21 @@
                             }
                         }
                     };
+
+                    // Conditionally add +sip.instance parameter based on toggle
+                    if (document.getElementById('sipInstanceEnabled').checked) {
+                        let instanceId = localStorage.getItem('sipphone-instance-id');
+                        if (!instanceId) {
+                            instanceId = crypto.randomUUID();
+                            localStorage.setItem('sipphone-instance-id', instanceId);
+                        }
+                        userAgentOptions.contactParams = {
+                            '+sip.instance': `"<urn:uuid:${instanceId}>"`
+                        };
+                        this.log(`Using +sip.instance: ${instanceId}`, 'info');
+                    } else {
+                        this.log('+sip.instance disabled', 'info');
+                    }
 
                     this.log('Creating SIP UserAgent with options:', 'info');
                     this.log(`- Server: ${transportOptions.server}`, 'info');
@@ -1725,6 +1739,9 @@
                             document.getElementById('presenceEnabled').checked = settings.presenceEnabled;
                             this.togglePresenceSettings(settings.presenceEnabled);
                         }
+                        if (settings.sipInstanceEnabled !== undefined) {
+                            document.getElementById('sipInstanceEnabled').checked = settings.sipInstanceEnabled;
+                        }
                         if (settings.presenceSubscriptions) document.getElementById('presenceSubscriptions').value = settings.presenceSubscriptions;
                         if (settings.presenceExpires) document.getElementById('presenceExpires').value = settings.presenceExpires;
                         if (settings.publishExpires) document.getElementById('publishExpires').value = settings.publishExpires;
@@ -1744,6 +1761,7 @@
                         sipPassword: document.getElementById('sipPassword').value,
                         sipDomain: document.getElementById('sipDomain').value,
                         presenceEnabled: document.getElementById('presenceEnabled').checked,
+                        sipInstanceEnabled: document.getElementById('sipInstanceEnabled').checked,
                         presenceSubscriptions: document.getElementById('presenceSubscriptions').value,
                         presenceExpires: document.getElementById('presenceExpires').value,
                         publishExpires: document.getElementById('publishExpires').value
