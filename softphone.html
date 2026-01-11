@@ -589,11 +589,22 @@
                         reconnectionTimeout: 4000
                     };
 
+                    // Generate or retrieve instance ID for +sip.instance parameter
+                    // This ensures re-registrations replace old contacts rather than adding new ones
+                    let instanceId = localStorage.getItem('sipphone-instance-id');
+                    if (!instanceId) {
+                        instanceId = crypto.randomUUID();
+                        localStorage.setItem('sipphone-instance-id', instanceId);
+                    }
+
                     const userAgentOptions = {
                         uri: uri,
                         transportOptions: transportOptions,
                         authorizationUsername: sipUser,
                         authorizationPassword: sipPassword,
+                        contactParams: {
+                            '+sip.instance': `"<urn:uuid:${instanceId}>"`
+                        },
                         sessionDescriptionHandlerFactoryOptions: {
                             constraints: {
                                 audio: true,

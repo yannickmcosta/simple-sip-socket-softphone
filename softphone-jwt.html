@@ -720,11 +720,22 @@
                     const iceServers = this.buildIceServers();
                     this.log(`ICE servers configured: ${iceServers.length} server(s)`, 'info');
 
+                    // Generate or retrieve instance ID for +sip.instance parameter
+                    // This ensures re-registrations replace old contacts rather than adding new ones
+                    let instanceId = localStorage.getItem('sipphone-instance-id');
+                    if (!instanceId) {
+                        instanceId = crypto.randomUUID();
+                        localStorage.setItem('sipphone-instance-id', instanceId);
+                    }
+
                     // UserAgent options WITHOUT Digest authentication
                     const userAgentOptions = {
                         uri: uri,
                         transportOptions: transportOptions,
                         // NO authorizationUsername or authorizationPassword - using JWT instead
+                        contactParams: {
+                            '+sip.instance': `"<urn:uuid:${instanceId}>"`
+                        },
                         sessionDescriptionHandlerFactoryOptions: {
                             constraints: {
                                 audio: true,
