@@ -90,8 +90,22 @@
                                     <label class="form-check-label fw-bold" for="turnEnabled">
                                         <i class="bi bi-arrow-repeat"></i> Enable TURN Relay
                                     </label>
-                                    <small class="d-block text-muted">Use OpenRelay TURN servers for NAT traversal</small>
+                                    <small class="d-block text-muted">Use TURN servers for NAT traversal</small>
                                 </div>
+                            </div>
+                        </div>
+                        <div class="row mt-2" id="turnSettingsRow" style="display: none;">
+                            <div class="col-md-4">
+                                <label for="turnServer" class="form-label">TURN Server</label>
+                                <input type="text" class="form-control" id="turnServer" placeholder="turn:server.example.com:3478">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="turnUsername" class="form-label">TURN Username</label>
+                                <input type="text" class="form-control" id="turnUsername" placeholder="username">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="turnCredential" class="form-label">TURN Credential</label>
+                                <input type="password" class="form-control" id="turnCredential" placeholder="credential">
                             </div>
                         </div>
                         <div class="row mt-2" id="presenceSettingsRow" style="display: none;">
@@ -403,9 +417,15 @@
                 });
 
                 // TURN toggle
-                document.getElementById('turnEnabled').addEventListener('change', () => {
+                document.getElementById('turnEnabled').addEventListener('change', (e) => {
+                    this.toggleTurnSettings(e.target.checked);
                     this.saveSettings();
                 });
+
+                // TURN settings
+                document.getElementById('turnServer').addEventListener('input', () => this.saveSettings());
+                document.getElementById('turnUsername').addEventListener('input', () => this.saveSettings());
+                document.getElementById('turnCredential').addEventListener('input', () => this.saveSettings());
 
                 // Connection controls
                 document.getElementById('connectBtn').addEventListener('click', () => this.connect());
@@ -478,6 +498,11 @@
                 panel.style.display = enabled ? 'block' : 'none';
             }
 
+            toggleTurnSettings(enabled) {
+                const row = document.getElementById('turnSettingsRow');
+                row.style.display = enabled ? 'block' : 'none';
+            }
+
             // JWT Authentication Helper - Get Authorization header
             getAuthorizationHeader() {
                 if (!this.jwtToken) {
@@ -509,38 +534,37 @@
             buildIceServers() {
                 // Always include Google STUN server
                 const iceServers = [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun.relay.metered.ca:80' }
+                    { urls: 'stun:stun.l.google.com:19302' }
                 ];
 
-                // Add TURN servers if enabled
+                // Add TURN servers if enabled and configured
                 const turnEnabled = document.getElementById('turnEnabled').checked;
                 if (turnEnabled) {
-                    this.log('TURN relay enabled - adding Metered TURN servers', 'info');
+                    const turnServer = document.getElementById('turnServer').value.trim();
+                    const turnUsername = document.getElementById('turnUsername').value.trim();
+                    const turnCredential = document.getElementById('turnCredential').value;
 
-                    // Metered.ca TURN servers
-                    iceServers.push(
-                        {
-                            urls: 'turn:standard.relay.metered.ca:80',
-                            username: '863bd5b394dda9163881d35f',
-                            credential: 'RK5hayvwaskamB4f'
-                        },
-                        {
-                            urls: 'turn:standard.relay.metered.ca:80?transport=tcp',
-                            username: '863bd5b394dda9163881d35f',
-                            credential: 'RK5hayvwaskamB4f'
-                        },
-                        {
-                            urls: 'turn:standard.relay.metered.ca:443',
-                            username: '863bd5b394dda9163881d35f',
-                            credential: 'RK5hayvwaskamB4f'
-                        },
-                        {
-                            urls: 'turns:standard.relay.metered.ca:443?transport=tcp',
-                            username: '863bd5b394dda9163881d35f',
-                            credential: 'RK5hayvwaskamB4f'
+                    if (turnServer && turnUsername && turnCredential) {
+                        this.log('TURN relay enabled - adding configured TURN server', 'info');
+
+                        // Add the configured TURN server
+                        iceServers.push({
+                            urls: turnServer,
+                            username: turnUsername,
+                            credential: turnCredential
+                        });
+
+                        // Also add TCP transport variant if it's a standard TURN URL
+                        if (turnServer.startsWith('turn:') && !turnServer.includes('transport=')) {
+                            iceServers.push({
+                                urls: turnServer + '?transport=tcp',
+                                username: turnUsername,
+                                credential: turnCredential
+                            });
                         }
-                    );
+                    } else {
+                        this.log('TURN enabled but credentials not configured - using STUN only', 'warning');
+                    }
                 } else {
                     this.log('TURN relay disabled - using STUN only', 'info');
                 }
@@ -1460,7 +1484,11 @@
                         if (settings.publishExpires) document.getElementById('publishExpires').value = settings.publishExpires;
                         if (settings.turnEnabled !== undefined) {
                             document.getElementById('turnEnabled').checked = settings.turnEnabled;
+                            this.toggleTurnSettings(settings.turnEnabled);
                         }
+                        if (settings.turnServer) document.getElementById('turnServer').value = settings.turnServer;
+                        if (settings.turnUsername) document.getElementById('turnUsername').value = settings.turnUsername;
+                        if (settings.turnCredential) document.getElementById('turnCredential').value = settings.turnCredential;
 
                         this.log('Settings loaded from localStorage', 'success');
                     }
@@ -1480,7 +1508,10 @@
                         presenceSubscriptions: document.getElementById('presenceSubscriptions').value,
                         presenceExpires: document.getElementById('presenceExpires').value,
                         publishExpires: document.getElementById('publishExpires').value,
-                        turnEnabled: document.getElementById('turnEnabled').checked
+                        turnEnabled: document.getElementById('turnEnabled').checked,
+                        turnServer: document.getElementById('turnServer').value,
+                        turnUsername: document.getElementById('turnUsername').value,
+                        turnCredential: document.getElementById('turnCredential').value
                     };
 
                     localStorage.setItem('sipphone-jwt-settings', JSON.stringify(settings));
