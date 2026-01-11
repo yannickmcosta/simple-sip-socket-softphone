@@ -350,6 +350,7 @@
                 this.reconnectAttempts = 0;
                 this.maxReconnectAttempts = 5;
                 this.reconnectTimer = null;
+                this.isIntentionalDisconnect = false;
 
                 this.loadSettings();
                 this.loadCallHistory();
@@ -525,6 +526,7 @@
                             this.log('WebSocket connection established successfully', 'success');
                             this.isConnected = true;
                             this.reconnectAttempts = 0;
+                            this.isIntentionalDisconnect = false;
                             this.clearReconnectTimer();
                             this.updateConnectionStatus('connected');
                             this.register();
@@ -610,7 +612,8 @@
 
                         if (newState === SIP.RegistererState.Registered) {
                             this.isRegistered = true;
-                            this.updateRegistrationStatus('Registered');
+                            this.updateRegistrationStatus('Registered', 'success');
+                            this.updateStatusBarStyle('info');
                             this.enableControls(true);
                             this.log('Successfully registered with SIP server', 'success');
 
@@ -620,12 +623,14 @@
                             }
                         } else if (newState === SIP.RegistererState.Unregistered) {
                             this.isRegistered = false;
-                            this.updateRegistrationStatus('Unregistered');
+                            this.updateRegistrationStatus('Unregistered - Check credentials', 'warning');
+                            this.updateStatusBarStyle('danger');
                             this.enableControls(false);
                             this.log('SIP registration lost', 'error');
                         } else if (newState === SIP.RegistererState.Terminated) {
                             this.isRegistered = false;
-                            this.updateRegistrationStatus('Registration Terminated');
+                            this.updateRegistrationStatus('Registration Failed - Invalid credentials?', 'error');
+                            this.updateStatusBarStyle('danger');
                             this.enableControls(false);
                             this.log('SIP registration terminated', 'error');
                         }
@@ -649,6 +654,10 @@
             }
 
             async disconnect() {
+                // Mark this as an intentional disconnect to prevent auto-reconnection
+                this.isIntentionalDisconnect = true;
+                this.clearReconnectTimer();
+
                 if (this.currentSession) {
                     this.hangupCall();
                 }
@@ -672,7 +681,8 @@
                 this.isConnected = false;
                 this.isRegistered = false;
                 this.updateConnectionStatus('disconnected');
-                this.updateRegistrationStatus('');
+                this.updateRegistrationStatus('', 'info');
+                this.updateStatusBarStyle('info');
                 this.enableControls(false);
                 this.log('Disconnected', 'info');
             }
@@ -1112,8 +1122,35 @@
                 document.getElementById('disconnectBtn').disabled = status === 'disconnected';
             }
 
-            updateRegistrationStatus(status) {
-                document.getElementById('registrationStatus').textContent = status;
+            updateRegistrationStatus(status, type = 'info') {
+                const elem = document.getElementById('registrationStatus');
+                elem.textContent = status;
+
+                // Clear previous styling classes
+                elem.className = 'ms-3';
+
+                if (type === 'error' || type === 'warning') {
+                    elem.classList.add('text-danger', 'fw-bold');
+                } else if (type === 'success') {
+                    elem.classList.add('text-success', 'fw-bold');
+                }
+            }
+
+            updateStatusBarStyle(type) {
+                const alertDiv = document.querySelector('#connectionStatus').closest('.alert');
+                if (!alertDiv) return;
+
+                // Reset to base alert class
+                alertDiv.className = 'alert';
+                alertDiv.setAttribute('role', 'alert');
+
+                if (type === 'danger') {
+                    alertDiv.classList.add('alert-danger');
+                } else if (type === 'warning') {
+                    alertDiv.classList.add('alert-warning');
+                } else {
+                    alertDiv.classList.add('alert-info');
+                }
             }
 
             updateCallStatus(status) {
@@ -1543,18 +1580,28 @@
                     const sipDomain = document.getElementById('sipDomain').value;
                     const targetUri = SIP.UserAgent.makeURI(`sip:${sipUser}@${sipDomain}`);
 
-                    // Create PUBLISH request
+                    // Prepare extra headers as array of strings
+                    const extraHeaders = [
+                        'Event: presence',
+                        'Expires: ' + this.publishExpires.toString()
+                    ];
+
+                    // Prepare body object with proper structure for SIP.js
+                    const bodyObj = {
+                        contentDisposition: 'render',
+                        contentType: contentType,
+                        content: body
+                    };
+
+                    // Create PUBLISH request with correct parameter order
                     const request = this.ua.userAgentCore.makeOutgoingRequestMessage(
                         'PUBLISH',
                         targetUri,
                         this.ua.configuration.uri,
                         targetUri,
-                        {
-                            'Event': 'presence',
-                            'Expires': this.publishExpires.toString(),
-                            'Content-Type': contentType
-                        },
-                        body
+                        {},           // options (5th parameter)
+                        extraHeaders, // extraHeaders array (6th parameter)
+                        bodyObj       // body object (7th parameter)
                     );
 
                     // Send via user agent core (fire-and-forget, as userAgentCore.request doesn't return a Promise in SIP.js 0.21.2)
@@ -1661,7 +1708,20 @@
                                 const body = notification.request.body;
 
                                 let parsedState = null;
-                                if (contentType && contentType.includes('dialog-info+xml')) {
+
+                                // Handle empty NOTIFY (no active dialogs = idle)
+                                if (!body || body.length === 0) {
+                                    this.log(`Empty NOTIFY body - assuming idle state`, 'info');
+                                    parsedState = {
+                                        aor: aor,
+                                        registered: true,
+                                        callState: 'idle',
+                                        direction: 'unknown',
+                                        remoteParty: null,
+                                        updatedAt: Date.now(),
+                                        source: 'dialog'
+                                    };
+                                } else if (contentType && contentType.includes('dialog-info+xml')) {
                                     parsedState = this.parseDialogInfo(body, aor);
                                 } else if (contentType && contentType.includes('pidf+xml')) {
                                     parsedState = this.parsePIDF(body, aor);
@@ -1902,6 +1962,13 @@
 
                 // Clean up presence subscriptions
                 this.cleanupPresence();
+
+                // Don't reconnect if this was an intentional disconnect
+                if (this.isIntentionalDisconnect) {
+                    this.log('Intentional disconnect - not attempting reconnection', 'info');
+                    this.isIntentionalDisconnect = false;
+                    return;
+                }
 
                 // Attempt reconnection with exponential backoff
                 if (this.reconnectAttempts < this.maxReconnectAttempts) {
