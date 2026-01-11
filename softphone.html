@@ -943,6 +943,9 @@
                             this.publishCallState('in_call');
 
                             this.setupAudioHandling(session);
+
+                            // Debug logging for audio streams
+                            this.debugAudioState(session);
                             break;
                         case SIP.SessionState.Terminated:
                             this.updateCallStatus('Call Ended');
@@ -1010,6 +1013,84 @@
                 audioContainer.appendChild(audio);
 
                 this.updateSpeakerVolume();
+            }
+
+            debugAudioState(session) {
+                this.log('=== AUDIO DEBUG START ===', 'info');
+
+                const sdh = session.sessionDescriptionHandler;
+                if (!sdh) {
+                    this.log('DEBUG: No sessionDescriptionHandler', 'error');
+                    return;
+                }
+
+                // Check local media stream
+                if (sdh.localMediaStream) {
+                    const localStream = sdh.localMediaStream;
+                    this.log(`DEBUG: Local stream ID: ${localStream.id}`, 'info');
+                    this.log(`DEBUG: Local stream active: ${localStream.active}`, 'info');
+
+                    const audioTracks = localStream.getAudioTracks();
+                    this.log(`DEBUG: Local audio tracks count: ${audioTracks.length}`, 'info');
+
+                    audioTracks.forEach((track, i) => {
+                        this.log(`DEBUG: Local track[${i}] id: ${track.id}`, 'info');
+                        this.log(`DEBUG: Local track[${i}] enabled: ${track.enabled}`, 'info');
+                        this.log(`DEBUG: Local track[${i}] muted: ${track.muted}`, 'info');
+                        this.log(`DEBUG: Local track[${i}] readyState: ${track.readyState}`, 'info');
+                        this.log(`DEBUG: Local track[${i}] label: ${track.label}`, 'info');
+                        if (track.getSettings) {
+                            const settings = track.getSettings();
+                            this.log(`DEBUG: Local track[${i}] deviceId: ${settings.deviceId}`, 'info');
+                        }
+                    });
+                } else {
+                    this.log('DEBUG: No localMediaStream!', 'error');
+                }
+
+                // Check peer connection
+                const pc = sdh.peerConnection;
+                if (pc) {
+                    this.log(`DEBUG: PeerConnection state: ${pc.connectionState}`, 'info');
+                    this.log(`DEBUG: ICE connection state: ${pc.iceConnectionState}`, 'info');
+                    this.log(`DEBUG: ICE gathering state: ${pc.iceGatheringState}`, 'info');
+                    this.log(`DEBUG: Signaling state: ${pc.signalingState}`, 'info');
+
+                    // Check senders (our outgoing tracks)
+                    const senders = pc.getSenders();
+                    this.log(`DEBUG: RTP Senders count: ${senders.length}`, 'info');
+                    senders.forEach((sender, i) => {
+                        if (sender.track) {
+                            this.log(`DEBUG: Sender[${i}] track kind: ${sender.track.kind}`, 'info');
+                            this.log(`DEBUG: Sender[${i}] track enabled: ${sender.track.enabled}`, 'info');
+                            this.log(`DEBUG: Sender[${i}] track readyState: ${sender.track.readyState}`, 'info');
+                        } else {
+                            this.log(`DEBUG: Sender[${i}] has no track!`, 'error');
+                        }
+                    });
+
+                    // Check receivers (incoming tracks)
+                    const receivers = pc.getReceivers();
+                    this.log(`DEBUG: RTP Receivers count: ${receivers.length}`, 'info');
+                    receivers.forEach((receiver, i) => {
+                        if (receiver.track) {
+                            this.log(`DEBUG: Receiver[${i}] track kind: ${receiver.track.kind}`, 'info');
+                            this.log(`DEBUG: Receiver[${i}] track enabled: ${receiver.track.enabled}`, 'info');
+                            this.log(`DEBUG: Receiver[${i}] track readyState: ${receiver.track.readyState}`, 'info');
+                        }
+                    });
+
+                    // Log ICE candidates gathered
+                    if (pc.localDescription) {
+                        const sdp = pc.localDescription.sdp;
+                        const candidateMatches = sdp.match(/a=candidate:.*/g);
+                        this.log(`DEBUG: ICE candidates in local SDP: ${candidateMatches ? candidateMatches.length : 0}`, 'info');
+                    }
+                } else {
+                    this.log('DEBUG: No PeerConnection!', 'error');
+                }
+
+                this.log('=== AUDIO DEBUG END ===', 'info');
             }
 
             hangupCall() {
