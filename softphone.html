@@ -723,7 +723,9 @@
 
                 try {
                     this.log('Starting SIP registration process...');
-                    const registerer = new SIP.Registerer(this.ua);
+                    const registerer = new SIP.Registerer(this.ua, {
+                        regId: 1
+                    });
 
                     registerer.stateChange.addListener((newState) => {
                         this.log(`Registration state changed: ${newState}`, newState === SIP.RegistererState.Registered ? 'success' : 'info');

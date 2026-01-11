@@ -870,6 +870,7 @@
 
                     // Create registerer with extra headers for Bearer token
                     const registerer = new SIP.Registerer(this.ua, {
+                        regId: 1,
                         extraHeaders: [
                             `Authorization: ${authHeader}`
                         ]
