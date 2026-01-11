@@ -615,18 +615,16 @@
                         }
                     };
 
-                    // Conditionally add +sip.instance parameter based on toggle
+                    // Conditionally prepare +sip.instance for Registerer based on toggle
                     if (document.getElementById('sipInstanceEnabled').checked) {
-                        let instanceId = localStorage.getItem('sipphone-instance-id');
-                        if (!instanceId) {
-                            instanceId = crypto.randomUUID();
-                            localStorage.setItem('sipphone-instance-id', instanceId);
+                        this.instanceId = localStorage.getItem('sipphone-instance-id');
+                        if (!this.instanceId) {
+                            this.instanceId = crypto.randomUUID();
+                            localStorage.setItem('sipphone-instance-id', this.instanceId);
                         }
-                        userAgentOptions.contactParams = {
-                            '+sip.instance': `"<urn:uuid:${instanceId}>"`
-                        };
-                        this.log(`Using +sip.instance: ${instanceId}`, 'info');
+                        this.log(`Using +sip.instance: ${this.instanceId}`, 'info');
                     } else {
+                        this.instanceId = null;
                         this.log('+sip.instance disabled', 'info');
                     }
 
@@ -723,9 +721,17 @@
 
                 try {
                     this.log('Starting SIP registration process...');
-                    const registerer = new SIP.Registerer(this.ua, {
-                        regId: 1
-                    });
+
+                    // Build registerer options
+                    const registererOptions = {};
+
+                    // Add regId and instanceId if +sip.instance is enabled
+                    if (this.instanceId) {
+                        registererOptions.regId = 1;
+                        registererOptions.instanceId = this.instanceId;
+                    }
+
+                    const registerer = new SIP.Registerer(this.ua, registererOptions);
 
                     registerer.stateChange.addListener((newState) => {
                         this.log(`Registration state changed: ${newState}`, newState === SIP.RegistererState.Registered ? 'success' : 'info');
