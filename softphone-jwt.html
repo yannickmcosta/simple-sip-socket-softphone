@@ -61,6 +61,10 @@
                         </div>
                         <div class="row mt-3">
                             <div class="col-md-12">
+                                <input type="file" id="configFileInput" accept=".json" style="display: none;">
+                                <button type="button" class="btn btn-outline-secondary me-2" onclick="document.getElementById('configFileInput').click()">
+                                    <i class="bi bi-upload"></i> Load Config
+                                </button>
                                 <button type="button" class="btn btn-primary me-2" id="connectBtn">
                                     <i class="bi bi-plug"></i> Connect
                                 </button>
@@ -532,6 +536,7 @@
                 document.getElementById('disconnectBtn').addEventListener('click', () => this.disconnect());
                 document.getElementById('testConnectionBtn').addEventListener('click', () => this.testConnection());
                 document.getElementById('refreshTokenBtn').addEventListener('click', () => this.refreshToken());
+                document.getElementById('configFileInput').addEventListener('change', (e) => this.loadConfigFile(e));
 
                 // Save settings when they change
                 document.getElementById('wsServer').addEventListener('input', () => this.saveSettings());
@@ -2052,6 +2057,31 @@
                 } catch (error) {
                     this.log(`Failed to save settings: ${error.message}`, 'error');
                 }
+            }
+
+            loadConfigFile(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const config = JSON.parse(e.target.result);
+
+                        if (config.server) document.getElementById('wsServer').value = config.server;
+                        if (config.sip_user) document.getElementById('sipUser').value = config.sip_user;
+                        if (config.jwt_token) document.getElementById('jwtToken').value = config.jwt_token;
+                        if (config.domain) document.getElementById('sipDomain').value = config.domain;
+
+                        this.saveSettings();
+                        this.log('Configuration loaded from file', 'success');
+                    } catch (err) {
+                        this.log(`Failed to parse config file: ${err.message}`, 'error');
+                    }
+                };
+                reader.readAsText(file);
+
+                event.target.value = '';
             }
 
             loadCallHistory() {

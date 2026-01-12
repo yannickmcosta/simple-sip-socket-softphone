@@ -53,14 +53,18 @@
                                 <label for="sipDomain" class="form-label">Domain</label>
                                 <input type="text" class="form-control" id="sipDomain" placeholder="example.com" value="">
                             </div>
-                            <div class="col-md-3 d-flex align-items-end">
-                                <button type="button" class="btn btn-primary me-2" id="connectBtn">
+                            <div class="col-md-3 d-flex align-items-end flex-wrap">
+                                <input type="file" id="configFileInput" accept=".json" style="display: none;">
+                                <button type="button" class="btn btn-outline-secondary me-2 mb-1" onclick="document.getElementById('configFileInput').click()">
+                                    <i class="bi bi-upload"></i> Load Config
+                                </button>
+                                <button type="button" class="btn btn-primary me-2 mb-1" id="connectBtn">
                                     <i class="bi bi-plug"></i> Connect
                                 </button>
-                                <button type="button" class="btn btn-danger me-2" id="disconnectBtn" disabled>
+                                <button type="button" class="btn btn-danger me-2 mb-1" id="disconnectBtn" disabled>
                                     <i class="bi bi-plug-fill"></i> Disconnect
                                 </button>
-                                <button type="button" class="btn btn-warning" id="testConnectionBtn">
+                                <button type="button" class="btn btn-warning mb-1" id="testConnectionBtn">
                                     <i class="bi bi-activity"></i> Test
                                 </button>
                             </div>
@@ -479,6 +483,7 @@
                 document.getElementById('connectBtn').addEventListener('click', () => this.connect());
                 document.getElementById('disconnectBtn').addEventListener('click', () => this.disconnect());
                 document.getElementById('testConnectionBtn').addEventListener('click', () => this.testConnection());
+                document.getElementById('configFileInput').addEventListener('change', (e) => this.loadConfigFile(e));
 
                 // Save settings when they change
                 document.getElementById('wsServer').addEventListener('input', () => this.saveSettings());
@@ -1861,6 +1866,31 @@
                 } catch (error) {
                     this.log(`Failed to save settings: ${error.message}`, 'error');
                 }
+            }
+
+            loadConfigFile(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const config = JSON.parse(e.target.result);
+
+                        if (config.server) document.getElementById('wsServer').value = config.server;
+                        if (config.sip_user) document.getElementById('sipUser').value = config.sip_user;
+                        if (config.password) document.getElementById('sipPassword').value = config.password;
+                        if (config.domain) document.getElementById('sipDomain').value = config.domain;
+
+                        this.saveSettings();
+                        this.log('Configuration loaded from file', 'success');
+                    } catch (err) {
+                        this.log(`Failed to parse config file: ${err.message}`, 'error');
+                    }
+                };
+                reader.readAsText(file);
+
+                event.target.value = '';
             }
 
             loadCallHistory() {
