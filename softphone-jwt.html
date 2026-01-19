@@ -8,191 +8,541 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
     <script src="./sip-0.21.2.js"></script>
     <style>
-        .status-connected { color: #28a745; }
-        .status-disconnected { color: #dc3545; }
-        .status-connecting { color: #ffc107; }
+        :root {
+            --status-connected: #28a745;
+            --status-disconnected: #dc3545;
+            --status-connecting: #ffc107;
+        }
+        .status-connected { color: var(--status-connected); }
+        .status-disconnected { color: var(--status-disconnected); }
+        .status-connecting { color: var(--status-connecting); }
         .call-active { background-color: #d4edda; border-color: #c3e6cb; }
-        .number-pad button { margin: 2px; min-width: 60px; min-height: 60px; }
+        .number-pad {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+        .number-pad .pad-row {
+            display: flex;
+            gap: 8px;
+        }
+        .number-pad button {
+            width: 85px;
+            height: 85px;
+            font-size: 1.75rem;
+            font-weight: 500;
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            line-height: 1.1;
+            padding: 0;
+        }
+        .number-pad button small {
+            font-size: 0.6rem;
+            font-weight: 400;
+            letter-spacing: 2px;
+            margin-top: 2px;
+        }
         .volume-control { width: 100%; }
         .call-info { font-family: monospace; }
         #audioContainer audio { width: 100%; margin: 5px 0; }
         .presence-card { transition: all 0.3s ease; }
         .presence-card:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
         .jwt-token-field { font-family: monospace; font-size: 0.85rem; }
+
+        /* Sticky Status Header */
+        .status-header {
+            position: sticky;
+            top: 0;
+            z-index: 1020;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: white;
+            padding: 0.75rem 1rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+        .status-header.header-disconnected { background: linear-gradient(135deg, #dc3545 0%, #c82333 100%); }
+        .status-header.header-connecting { background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%); color: #212529; }
+        .status-header.header-connected { background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%); }
+        .status-header.header-in-call { background: linear-gradient(135deg, #007bff 0%, #0056b3 100%); }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+        .status-dot.dot-disconnected { background-color: #fff; box-shadow: 0 0 0 2px #dc3545; }
+        .status-dot.dot-connecting { background-color: #212529; animation: blink 1s infinite; }
+        .status-dot.dot-connected { background-color: #fff; box-shadow: 0 0 8px rgba(255,255,255,0.8); }
+
+        .status-header .registration-badge {
+            background: rgba(255,255,255,0.2);
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+        }
+        .app-title {
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+        .app-title i {
+            margin-right: 6px;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        /* Main content area */
+        .main-content {
+            padding-top: 1rem;
+            padding-bottom: 80px;
+        }
+
+        /* Dialer styling */
+        .dialer-card {
+            border: none;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+        .dialer-card .card-body {
+            padding: 1.5rem;
+        }
+        #phoneNumber {
+            font-size: 1.5rem;
+            text-align: center;
+            letter-spacing: 2px;
+        }
+        #callBtn {
+            font-size: 1.25rem;
+            padding: 1rem;
+        }
+
+        /* Call info card */
+        .call-info-card {
+            border-left: 4px solid #007bff;
+            background: #f8f9fa;
+        }
+        .call-info-card.on-call {
+            border-left-color: #28a745;
+            background: #d4edda;
+        }
+
+        /* Side panels */
+        .side-panel {
+            max-height: calc(100vh - 150px);
+            overflow-y: auto;
+        }
+
+        /* Mobile bottom nav */
+        .mobile-bottom-nav {
+            display: none;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: #fff;
+            border-top: 1px solid #dee2e6;
+            padding: 0.5rem;
+            z-index: 1030;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+        }
+        .mobile-bottom-nav .nav-item {
+            flex: 1;
+            text-align: center;
+        }
+        .mobile-bottom-nav .nav-link {
+            padding: 0.5rem;
+            color: #6c757d;
+            font-size: 0.75rem;
+        }
+        .mobile-bottom-nav .nav-link.active {
+            color: #007bff;
+        }
+        .mobile-bottom-nav .nav-link i {
+            font-size: 1.25rem;
+            display: block;
+        }
+
+        @media (max-width: 991.98px) {
+            .mobile-bottom-nav { display: flex; }
+            .side-panel-col { display: none; }
+            .main-content { padding-bottom: 100px; }
+        }
+
+        /* Offcanvas panels for mobile */
+        .offcanvas-panel {
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        /* Settings offcanvas */
+        #settingsOffcanvas {
+            width: 450px;
+        }
+        @media (max-width: 575.98px) {
+            #settingsOffcanvas { width: 100%; }
+        }
+
+        /* DTMF buttons inline */
+        .dtmf-inline .btn {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.875rem;
+        }
+
+        /* Quick Dial & Favorites items */
+        .quick-dial-item, .favorite-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 6px 8px;
+            border-radius: 6px;
+            margin-bottom: 4px;
+            background: #f8f9fa;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .quick-dial-item:hover, .favorite-item:hover {
+            background: #e9ecef;
+        }
+        .quick-dial-item .dial-name, .favorite-item .fav-name {
+            font-weight: 500;
+            font-size: 0.85rem;
+        }
+        .quick-dial-item .dial-number, .favorite-item .fav-number {
+            font-size: 0.75rem;
+            color: #6c757d;
+        }
+        .quick-dial-item .dial-actions, .favorite-item .fav-actions {
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+        .quick-dial-item:hover .dial-actions, .favorite-item:hover .fav-actions {
+            opacity: 1;
+        }
+        .quick-dial-item .btn-call {
+            color: #28a745;
+        }
+        .quick-dial-item .btn-remove, .favorite-item .btn-remove {
+            color: #dc3545;
+        }
+
+        /* DND active state */
+        .dnd-active {
+            background: linear-gradient(135deg, #6c757d 0%, #495057 100%) !important;
+        }
+        .dnd-badge {
+            background: #ffc107;
+            color: #212529;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.7rem;
+            margin-left: 8px;
+        }
+
+        /* Account card styling */
+        #accountUser {
+            max-width: 120px;
+        }
+        #accountDomain {
+            max-width: 120px;
+        }
     </style>
 </head>
 <body>
-    <div class="container-fluid mt-3">
-        <div class="row">
-            <div class="col-12">
-                <h2 class="text-center mb-2">WebSocket SIP Softphone</h2>
-                <p class="text-center text-muted"><small><i class="bi bi-shield-check"></i> JWT Authentication (RFC 8898)</small></p>
+    <!-- Sticky Status Header -->
+    <header class="status-header header-disconnected" id="statusHeader">
+        <div class="container-fluid">
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center">
+                    <span class="app-title me-3">
+                        <i class="bi bi-telephone-fill"></i>SIP Softphone
+                    </span>
+                    <span class="status-dot dot-disconnected" id="statusDot"></span>
+                    <span id="connectionStatus" class="fw-bold me-2">Disconnected</span>
+                    <span id="registrationStatus" class="registration-badge ms-2"></span>
+                </div>
+                <div class="d-flex align-items-center">
+                    <span id="headerCallInfo" class="me-3 d-none">
+                        <i class="bi bi-telephone-forward-fill"></i>
+                        <span id="headerRemoteParty"></span>
+                        <span id="headerCallDuration" class="ms-2 fw-bold"></span>
+                    </span>
+                    <button class="btn btn-sm btn-outline-light" type="button" data-bs-toggle="offcanvas" data-bs-target="#settingsOffcanvas">
+                        <i class="bi bi-gear-fill"></i> Settings
+                    </button>
+                </div>
+            </div>
+            <div id="errorMessage" class="small mt-1" style="display: none;"></div>
+        </div>
+    </header>
+
+    <!-- Settings Offcanvas -->
+    <div class="offcanvas offcanvas-end" tabindex="-1" id="settingsOffcanvas">
+        <div class="offcanvas-header">
+            <h5 class="offcanvas-title"><i class="bi bi-gear"></i> Connection Settings</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button>
+        </div>
+        <div class="offcanvas-body">
+            <!-- Connection Fields -->
+            <div class="mb-3">
+                <label for="wsServer" class="form-label">WebSocket Server</label>
+                <input type="text" class="form-control" id="wsServer" placeholder="wss://your-server.example.com:8089/ws">
+            </div>
+            <div class="row mb-3">
+                <div class="col-6">
+                    <label for="sipUser" class="form-label">SIP User</label>
+                    <input type="text" class="form-control" id="sipUser" placeholder="extension">
+                </div>
+                <div class="col-6">
+                    <label for="sipDomain" class="form-label">Domain</label>
+                    <input type="text" class="form-control" id="sipDomain" placeholder="example.com">
+                </div>
+            </div>
+            <div class="mb-3">
+                <label for="jwtToken" class="form-label">JWT Token <small class="text-muted">(Bearer Auth)</small></label>
+                <textarea class="form-control jwt-token-field" id="jwtToken" rows="3" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."></textarea>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="d-flex flex-wrap gap-2 mb-4">
+                <input type="file" id="configFileInput" accept=".json" style="display: none;">
+                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('configFileInput').click()">
+                    <i class="bi bi-upload"></i> Load
+                </button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="saveConfigBtn">
+                    <i class="bi bi-download"></i> Save
+                </button>
+                <button type="button" class="btn btn-primary btn-sm" id="connectBtn">
+                    <i class="bi bi-plug"></i> Connect
+                </button>
+                <button type="button" class="btn btn-danger btn-sm" id="disconnectBtn" disabled>
+                    <i class="bi bi-plug-fill"></i> Disconnect
+                </button>
+                <button type="button" class="btn btn-warning btn-sm" id="testConnectionBtn">
+                    <i class="bi bi-activity"></i> Test
+                </button>
+                <button type="button" class="btn btn-info btn-sm" id="refreshTokenBtn">
+                    <i class="bi bi-arrow-clockwise"></i> Token
+                </button>
+            </div>
+
+            <!-- Accordion for Advanced Settings -->
+            <div class="accordion" id="settingsAccordion">
+                <!-- Presence & BLF -->
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#presenceSettings">
+                            <i class="bi bi-eye me-2"></i> Presence & BLF
+                        </button>
+                    </h2>
+                    <div id="presenceSettings" class="accordion-collapse collapse" data-bs-parent="#settingsAccordion">
+                        <div class="accordion-body">
+                            <div class="form-check mb-3">
+                                <input type="checkbox" class="form-check-input" id="presenceEnabled">
+                                <label class="form-check-label" for="presenceEnabled">Enable Presence & BLF</label>
+                            </div>
+                            <div id="presenceSettingsRow">
+                                <div class="mb-2">
+                                    <label for="presenceSubscriptions" class="form-label small">Watch Extensions</label>
+                                    <input type="text" class="form-control form-control-sm" id="presenceSubscriptions" placeholder="1001,1002,1003">
+                                </div>
+                                <div class="row">
+                                    <div class="col-6">
+                                        <label for="presenceExpires" class="form-label small">Presence Expires</label>
+                                        <input type="number" class="form-control form-control-sm" id="presenceExpires" value="600" min="60">
+                                    </div>
+                                    <div class="col-6">
+                                        <label for="publishExpires" class="form-label small">Publish Expires</label>
+                                        <input type="number" class="form-control form-control-sm" id="publishExpires" value="300" min="60">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TURN Relay -->
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#turnSettings">
+                            <i class="bi bi-arrow-repeat me-2"></i> TURN Relay
+                        </button>
+                    </h2>
+                    <div id="turnSettings" class="accordion-collapse collapse" data-bs-parent="#settingsAccordion">
+                        <div class="accordion-body">
+                            <div class="form-check mb-3">
+                                <input type="checkbox" class="form-check-input" id="turnEnabled">
+                                <label class="form-check-label" for="turnEnabled">Enable TURN Relay</label>
+                                <small class="d-block text-muted">Use TURN servers for NAT traversal</small>
+                            </div>
+                            <div id="turnSettingsRow">
+                                <div class="mb-2">
+                                    <label for="turnServer" class="form-label small">TURN Server</label>
+                                    <input type="text" class="form-control form-control-sm" id="turnServer" placeholder="turn:server.example.com:3478">
+                                </div>
+                                <div class="mb-2">
+                                    <label for="turnUsername" class="form-label small">Username</label>
+                                    <input type="text" class="form-control form-control-sm" id="turnUsername" placeholder="username">
+                                </div>
+                                <div class="mb-2">
+                                    <label for="turnCredential" class="form-label small">Credential</label>
+                                    <input type="password" class="form-control form-control-sm" id="turnCredential" placeholder="credential">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SIP Instance -->
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#instanceSettings">
+                            <i class="bi bi-fingerprint me-2"></i> SIP Instance
+                        </button>
+                    </h2>
+                    <div id="instanceSettings" class="accordion-collapse collapse" data-bs-parent="#settingsAccordion">
+                        <div class="accordion-body">
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input" id="sipInstanceEnabled" checked>
+                                <label class="form-check-label" for="sipInstanceEnabled">Use +sip.instance</label>
+                                <small class="d-block text-muted">Prevents duplicate contact registrations</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
+    </div>
 
-        <!-- Connection Configuration -->
-        <div class="row mb-4">
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-header">
-                        <h5 class="mb-0">Connection Settings</h5>
+    <!-- Main Content -->
+    <div class="container-fluid main-content">
+        <div class="row">
+            <!-- Left Column: Account, Quick Dial, Favorites, Presence -->
+            <div class="col-lg-3 side-panel-col" id="leftCol">
+                <!-- Account Info Card -->
+                <div class="card mb-3">
+                    <div class="card-header py-2">
+                        <h6 class="mb-0"><i class="bi bi-person-circle"></i> Account</h6>
                     </div>
-                    <div class="card-body">
-                        <div class="row">
-                            <div class="col-md-3">
-                                <label for="wsServer" class="form-label">WebSocket Server</label>
-                                <input type="text" class="form-control" id="wsServer" placeholder="wss://your-server.example.com:8089/ws" value="">
+                    <div class="card-body py-2">
+                        <div class="small">
+                            <div class="d-flex justify-content-between">
+                                <span class="text-muted">User:</span>
+                                <span id="accountUser" class="fw-bold text-truncate ms-2">-</span>
                             </div>
-                            <div class="col-md-2">
-                                <label for="sipUser" class="form-label">SIP User</label>
-                                <input type="text" class="form-control" id="sipUser" placeholder="extension" value="">
+                            <div class="d-flex justify-content-between">
+                                <span class="text-muted">Domain:</span>
+                                <span id="accountDomain" class="text-truncate ms-2">-</span>
                             </div>
-                            <div class="col-md-4">
-                                <label for="jwtToken" class="form-label">
-                                    JWT Token
-                                    <small class="text-muted">(Bearer Authentication)</small>
+                            <div class="d-flex justify-content-between">
+                                <span class="text-muted">Reg Expiry:</span>
+                                <span id="accountRegExpiry" class="text-truncate ms-2">-</span>
+                            </div>
+                        </div>
+                        <!-- DND Toggle -->
+                        <div class="border-top mt-2 pt-2">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="dndToggle">
+                                <label class="form-check-label small" for="dndToggle">
+                                    <i class="bi bi-moon-fill text-warning"></i> Do Not Disturb
                                 </label>
-                                <textarea class="form-control jwt-token-field" id="jwtToken" rows="2" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."></textarea>
-                            </div>
-                            <div class="col-md-3">
-                                <label for="sipDomain" class="form-label">Domain</label>
-                                <input type="text" class="form-control" id="sipDomain" placeholder="example.com" value="">
-                            </div>
-                        </div>
-                        <div class="row mt-3">
-                            <div class="col-md-12">
-                                <input type="file" id="configFileInput" accept=".json" style="display: none;">
-                                <button type="button" class="btn btn-outline-secondary me-2" onclick="document.getElementById('configFileInput').click()">
-                                    <i class="bi bi-upload"></i> Load Config
-                                </button>
-                                <button type="button" class="btn btn-primary me-2" id="connectBtn">
-                                    <i class="bi bi-plug"></i> Connect
-                                </button>
-                                <button type="button" class="btn btn-danger me-2" id="disconnectBtn" disabled>
-                                    <i class="bi bi-plug-fill"></i> Disconnect
-                                </button>
-                                <button type="button" class="btn btn-warning me-2" id="testConnectionBtn">
-                                    <i class="bi bi-activity"></i> Test
-                                </button>
-                                <button type="button" class="btn btn-info" id="refreshTokenBtn">
-                                    <i class="bi bi-arrow-clockwise"></i> Update Token
-                                </button>
-                            </div>
-                        </div>
-                        <div class="row mt-3">
-                            <div class="col-md-6">
-                                <div class="form-check">
-                                    <input type="checkbox" class="form-check-input" id="presenceEnabled">
-                                    <label class="form-check-label fw-bold" for="presenceEnabled">
-                                        <i class="bi bi-eye"></i> Enable Presence & BLF
-                                    </label>
-                                </div>
-                            </div>
-                            <div class="col-md-6">
-                                <div class="form-check">
-                                    <input type="checkbox" class="form-check-input" id="turnEnabled">
-                                    <label class="form-check-label fw-bold" for="turnEnabled">
-                                        <i class="bi bi-arrow-repeat"></i> Enable TURN Relay
-                                    </label>
-                                    <small class="d-block text-muted">Use TURN servers for NAT traversal</small>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="row mt-2">
-                            <div class="col-md-6">
-                                <div class="form-check">
-                                    <input type="checkbox" class="form-check-input" id="sipInstanceEnabled" checked>
-                                    <label class="form-check-label fw-bold" for="sipInstanceEnabled">
-                                        <i class="bi bi-fingerprint"></i> Use +sip.instance
-                                    </label>
-                                    <small class="text-muted d-block">Prevents duplicate contact registrations</small>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="row mt-2" id="turnSettingsRow" style="display: none;">
-                            <div class="col-md-4">
-                                <label for="turnServer" class="form-label">TURN Server</label>
-                                <input type="text" class="form-control" id="turnServer" placeholder="turn:server.example.com:3478">
-                            </div>
-                            <div class="col-md-4">
-                                <label for="turnUsername" class="form-label">TURN Username</label>
-                                <input type="text" class="form-control" id="turnUsername" placeholder="username">
-                            </div>
-                            <div class="col-md-4">
-                                <label for="turnCredential" class="form-label">TURN Credential</label>
-                                <input type="password" class="form-control" id="turnCredential" placeholder="credential">
-                            </div>
-                        </div>
-                        <div class="row mt-2" id="presenceSettingsRow" style="display: none;">
-                            <div class="col-md-6">
-                                <label for="presenceSubscriptions" class="form-label">Watch Extensions (comma-separated)</label>
-                                <input type="text" class="form-control" id="presenceSubscriptions" placeholder="1001,1002,1003">
-                            </div>
-                            <div class="col-md-3">
-                                <label for="presenceExpires" class="form-label">Presence Expires (seconds)</label>
-                                <input type="number" class="form-control" id="presenceExpires" value="600" min="60">
-                            </div>
-                            <div class="col-md-3">
-                                <label for="publishExpires" class="form-label">Publish Expires (seconds)</label>
-                                <input type="number" class="form-control" id="publishExpires" value="300" min="60">
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
-        </div>
 
-        <!-- Status Bar -->
-        <div class="row mb-4">
-            <div class="col-12">
-                <div class="alert alert-info" role="alert">
-                    <strong>Status:</strong> <span id="connectionStatus" class="status-disconnected">Disconnected</span>
-                    <span id="registrationStatus" class="ms-3"></span>
-                    <div id="errorMessage" class="mt-2" style="display: none;"></div>
+                <!-- Audio Devices Card -->
+                <div class="card mb-3">
+                    <div class="card-header py-2">
+                        <h6 class="mb-0"><i class="bi bi-headset"></i> Audio Devices</h6>
+                    </div>
+                    <div class="card-body py-2">
+                        <div class="mb-2">
+                            <label class="form-label small mb-1"><i class="bi bi-mic"></i> Microphone</label>
+                            <select class="form-select form-select-sm" id="micSelect">
+                                <option value="">Default</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="form-label small mb-1"><i class="bi bi-speaker"></i> Speaker</label>
+                            <select class="form-select form-select-sm" id="speakerSelect">
+                                <option value="">Default</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-sm btn-outline-secondary w-100 mt-2" id="refreshDevicesBtn">
+                            <i class="bi bi-arrow-clockwise"></i> Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Favorites Card -->
+                <div class="card mb-3">
+                    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0"><i class="bi bi-star-fill text-warning"></i> Favorites</h6>
+                    </div>
+                    <div class="card-body py-2">
+                        <div id="favoritesList" style="max-height: 120px; overflow-y: auto;">
+                            <div class="text-muted text-center small">No favorites yet</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quick Dial Card -->
+                <div class="card mb-3">
+                    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0"><i class="bi bi-lightning-fill text-primary"></i> Quick Dial</h6>
+                        <button class="btn btn-sm btn-link p-0" id="addQuickDialBtn" title="Add Quick Dial">
+                            <i class="bi bi-plus-circle"></i>
+                        </button>
+                    </div>
+                    <div class="card-body py-2">
+                        <div id="quickDialList" style="max-height: 150px; overflow-y: auto;">
+                            <div class="text-muted text-center small">No quick dials set</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Presence Panel (shown when enabled) -->
+                <div class="card side-panel" id="presencePanel" style="display: none;">
+                    <div class="card-header py-2">
+                        <h6 class="mb-0"><i class="bi bi-eye"></i> Presence</h6>
+                    </div>
+                    <div class="card-body py-2">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div>
+                                <small class="text-muted">My Status:</small>
+                                <span id="myPresenceStatus" class="badge bg-secondary ms-1">Unknown</span>
+                            </div>
+                            <div>
+                                <span id="subscriptionCount" class="badge bg-info">0</span>
+                                <small class="text-muted">active</small>
+                            </div>
+                        </div>
+                        <div id="presenceList" style="max-height: 150px; overflow-y: auto;">
+                            <div class="text-muted text-center small">Presence info appears here...</div>
+                        </div>
+                    </div>
                 </div>
             </div>
-        </div>
 
-        <!-- Presence Panel -->
-        <div class="row mb-4" id="presencePanel" style="display: none;">
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-header">
-                        <h5 class="mb-0">
-                            <i class="bi bi-eye"></i> Presence Status
-                        </h5>
-                    </div>
+            <!-- Center Column: Dialer -->
+            <div class="col-lg-6">
+                <div class="card dialer-card">
                     <div class="card-body">
-                        <div class="row mb-3">
-                            <div class="col-md-6">
-                                <strong>My Status:</strong>
-                                <span id="myPresenceStatus" class="badge bg-secondary ms-2">Unknown</span>
-                            </div>
-                            <div class="col-md-6 text-end">
-                                <strong>Subscriptions:</strong>
-                                <span id="subscriptionCount" class="badge bg-info ms-2">0</span> active
-                            </div>
-                        </div>
-                        <div id="presenceList" style="max-height: 200px; overflow-y: auto;">
-                            <div class="text-muted text-center">Presence information will appear here...</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="row">
-            <!-- Dialer Panel -->
-            <div class="col-md-6">
-                <div class="card">
-                    <div class="card-header">
-                        <h5 class="mb-0">Dialer</h5>
-                    </div>
-                    <div class="card-body">
+                        <!-- Phone Number Input -->
                         <div class="mb-3">
-                            <label for="phoneNumber" class="form-label">Phone Number</label>
-                            <div class="input-group">
-                                <input type="text" class="form-control form-control-lg" id="phoneNumber" placeholder="Enter number to dial">
+                            <div class="input-group input-group-lg">
+                                <input type="text" class="form-control" id="phoneNumber" placeholder="Enter number">
                                 <button class="btn btn-outline-secondary" type="button" id="clearNumber">
                                     <i class="bi bi-backspace"></i>
                                 </button>
@@ -200,165 +550,207 @@
                         </div>
 
                         <!-- Number Pad -->
-                        <div class="number-pad text-center mb-3">
-                            <div class="row">
-                                <div class="col-4"><button class="btn btn-outline-primary" data-digit="1">1</button></div>
-                                <div class="col-4"><button class="btn btn-outline-primary" data-digit="2">2<br><small>ABC</small></button></div>
-                                <div class="col-4"><button class="btn btn-outline-primary" data-digit="3">3<br><small>DEF</small></button></div>
+                        <div class="number-pad mb-3">
+                            <div class="pad-row">
+                                <button class="btn btn-outline-primary" data-digit="1">1</button>
+                                <button class="btn btn-outline-primary" data-digit="2">2<small>ABC</small></button>
+                                <button class="btn btn-outline-primary" data-digit="3">3<small>DEF</small></button>
                             </div>
-                            <div class="row">
-                                <div class="col-4"><button class="btn btn-outline-primary" data-digit="4">4<br><small>GHI</small></button></div>
-                                <div class="col-4"><button class="btn btn-outline-primary" data-digit="5">5<br><small>JKL</small></button></div>
-                                <div class="col-4"><button class="btn btn-outline-primary" data-digit="6">6<br><small>MNO</small></button></div>
+                            <div class="pad-row">
+                                <button class="btn btn-outline-primary" data-digit="4">4<small>GHI</small></button>
+                                <button class="btn btn-outline-primary" data-digit="5">5<small>JKL</small></button>
+                                <button class="btn btn-outline-primary" data-digit="6">6<small>MNO</small></button>
                             </div>
-                            <div class="row">
-                                <div class="col-4"><button class="btn btn-outline-primary" data-digit="7">7<br><small>PQRS</small></button></div>
-                                <div class="col-4"><button class="btn btn-outline-primary" data-digit="8">8<br><small>TUV</small></button></div>
-                                <div class="col-4"><button class="btn btn-outline-primary" data-digit="9">9<br><small>WXYZ</small></button></div>
+                            <div class="pad-row">
+                                <button class="btn btn-outline-primary" data-digit="7">7<small>PQRS</small></button>
+                                <button class="btn btn-outline-primary" data-digit="8">8<small>TUV</small></button>
+                                <button class="btn btn-outline-primary" data-digit="9">9<small>WXYZ</small></button>
                             </div>
-                            <div class="row">
-                                <div class="col-4"><button class="btn btn-outline-primary" data-digit="*">*</button></div>
-                                <div class="col-4"><button class="btn btn-outline-primary" data-digit="0">0</button></div>
-                                <div class="col-4"><button class="btn btn-outline-primary" data-digit="#">#</button></div>
+                            <div class="pad-row">
+                                <button class="btn btn-outline-primary" data-digit="*">*</button>
+                                <button class="btn btn-outline-primary" data-digit="0">0</button>
+                                <button class="btn btn-outline-primary" data-digit="#">#</button>
                             </div>
                         </div>
 
-                        <!-- Call Controls -->
-                        <div class="d-grid gap-2">
+                        <!-- Call Button -->
+                        <div class="d-grid mb-3">
                             <button type="button" class="btn btn-success btn-lg" id="callBtn" disabled>
-                                <i class="bi bi-telephone"></i> Call
+                                <i class="bi bi-telephone-fill"></i> Call
                             </button>
-                            <div class="row">
-                                <div class="col-6">
+                        </div>
+
+                        <!-- In-Call Controls (shown during calls) -->
+                        <div id="inCallControls" class="d-none">
+                            <div class="row g-2 mb-3">
+                                <div class="col-4">
                                     <button type="button" class="btn btn-danger w-100" id="hangupBtn" disabled>
                                         <i class="bi bi-telephone-x"></i> Hangup
                                     </button>
                                 </div>
-                                <div class="col-6">
+                                <div class="col-4">
                                     <button type="button" class="btn btn-warning w-100" id="holdBtn" disabled>
-                                        <i class="bi bi-pause"></i> Hold
+                                        <i class="bi bi-pause-fill"></i> Hold
                                     </button>
                                 </div>
-                            </div>
-                            <div class="row mt-2">
-                                <div class="col-12">
+                                <div class="col-4">
                                     <button type="button" class="btn btn-info w-100" id="transferBtn" disabled>
                                         <i class="bi bi-telephone-forward"></i> Transfer
                                     </button>
                                 </div>
                             </div>
                         </div>
+
+                        <!-- Call Info Card (shown during calls) -->
+                        <div id="callInfoCard" class="card call-info-card d-none">
+                            <div class="card-body py-2">
+                                <!-- Single Call View -->
+                                <div id="singleCallView" class="call-info">
+                                    <div class="row">
+                                        <div class="col-6">
+                                            <small class="text-muted">Status</small>
+                                            <div class="fw-bold" id="callStatus">Idle</div>
+                                        </div>
+                                        <div class="col-6">
+                                            <small class="text-muted">Duration</small>
+                                            <div class="fw-bold" id="callDuration">00:00</div>
+                                        </div>
+                                    </div>
+                                    <div class="row mt-2">
+                                        <div class="col-6">
+                                            <small class="text-muted">Remote Party</small>
+                                            <div id="remoteParty">-</div>
+                                        </div>
+                                        <div class="col-6">
+                                            <small class="text-muted">Local URI</small>
+                                            <div class="small text-truncate" id="localUri">-</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Transfer Split View -->
+                                <div id="transferSplitView" class="d-none">
+                                    <div class="row">
+                                        <div class="col-6">
+                                            <div class="card bg-light mb-2">
+                                                <div class="card-body py-1 px-2">
+                                                    <small class="text-muted">Primary (Hold)</small>
+                                                    <div class="small fw-bold" id="primaryCallParty">-</div>
+                                                    <span class="badge bg-warning text-dark">On Hold</span>
+                                                    <span class="small" id="primaryCallDuration">00:00</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="col-6">
+                                            <div class="card border-success mb-2">
+                                                <div class="card-body py-1 px-2">
+                                                    <small class="text-success">Transfer To</small>
+                                                    <div class="small fw-bold" id="transferCallParty">-</div>
+                                                    <span class="badge bg-info" id="transferCallStatus">Calling...</span>
+                                                    <span class="small" id="transferCallDuration">00:00</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="row g-2">
+                                        <div class="col-6">
+                                            <button type="button" class="btn btn-success btn-sm w-100" id="completeTransferBtn">
+                                                <i class="bi bi-check"></i> Complete
+                                            </button>
+                                        </div>
+                                        <div class="col-6">
+                                            <button type="button" class="btn btn-secondary btn-sm w-100" id="cancelTransferBtn">
+                                                <i class="bi bi-x"></i> Cancel
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Audio Controls -->
+                                <div class="border-top mt-2 pt-2">
+                                    <div class="row align-items-center">
+                                        <div class="col-auto">
+                                            <button class="btn btn-sm btn-outline-secondary" id="muteBtn">
+                                                <i class="bi bi-mic"></i>
+                                            </button>
+                                        </div>
+                                        <div class="col">
+                                            <small class="text-muted d-block">Mic</small>
+                                            <input type="range" class="form-range form-range-sm" id="micVolume" min="0" max="100" value="100">
+                                        </div>
+                                        <div class="col">
+                                            <small class="text-muted d-block">Speaker <span class="badge bg-secondary" id="volumeValue">100%</span></small>
+                                            <input type="range" class="form-range form-range-sm" id="speakerVolume" min="0" max="100" value="100">
+                                        </div>
+                                    </div>
+                                    <!-- DTMF Inline -->
+                                    <div class="dtmf-inline mt-2">
+                                        <small class="text-muted">DTMF:</small>
+                                        <div class="btn-group btn-group-sm ms-2">
+                                            <button type="button" class="btn btn-outline-secondary dtmf-btn" data-tone="1">1</button>
+                                            <button type="button" class="btn btn-outline-secondary dtmf-btn" data-tone="2">2</button>
+                                            <button type="button" class="btn btn-outline-secondary dtmf-btn" data-tone="3">3</button>
+                                            <button type="button" class="btn btn-outline-secondary dtmf-btn" data-tone="4">4</button>
+                                            <button type="button" class="btn btn-outline-secondary dtmf-btn" data-tone="5">5</button>
+                                            <button type="button" class="btn btn-outline-secondary dtmf-btn" data-tone="6">6</button>
+                                            <button type="button" class="btn btn-outline-secondary dtmf-btn" data-tone="7">7</button>
+                                            <button type="button" class="btn btn-outline-secondary dtmf-btn" data-tone="8">8</button>
+                                            <button type="button" class="btn btn-outline-secondary dtmf-btn" data-tone="9">9</button>
+                                            <button type="button" class="btn btn-outline-secondary dtmf-btn" data-tone="*">*</button>
+                                            <button type="button" class="btn btn-outline-secondary dtmf-btn" data-tone="0">0</button>
+                                            <button type="button" class="btn btn-outline-secondary dtmf-btn" data-tone="#">#</button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Audio Container -->
+                                <div id="audioContainer" class="mt-2 d-none"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Call Info & Audio Controls -->
-            <div class="col-md-6">
-                <div class="card">
-                    <div class="card-header">
-                        <h5 class="mb-0">Call Information</h5>
+            <!-- Right Column: Call History + Debug -->
+            <div class="col-lg-3 side-panel-col" id="historyCol">
+                <!-- Call History -->
+                <div class="card side-panel mb-3">
+                    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">
+                            <i class="bi bi-clock-history"></i> History
+                            <span id="missedCallBadge" class="badge bg-danger ms-1" style="display: none;">0</span>
+                        </h6>
+                        <div>
+                            <button class="btn btn-sm btn-link text-danger p-0 me-2" id="clearMissedBtn" style="display: none;" title="Clear Missed">
+                                <i class="bi bi-check-all"></i>
+                            </button>
+                            <button class="btn btn-sm btn-link text-secondary p-0" id="clearHistoryBtn" title="Clear All">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
                     </div>
-                    <div class="card-body">
-                        <!-- Normal single call view -->
-                        <div id="singleCallView" class="call-info mb-3">
-                            <div><strong>Status:</strong> <span id="callStatus">Idle</span></div>
-                            <div><strong>Remote Party:</strong> <span id="remoteParty">-</span></div>
-                            <div><strong>Duration:</strong> <span id="callDuration">00:00</span></div>
-                            <div><strong>Local URI:</strong> <span id="localUri">-</span></div>
-                        </div>
-
-                        <!-- Split view for attended transfer (hidden by default) -->
-                        <div id="transferSplitView" class="d-none">
-                            <div class="row">
-                                <div class="col-6">
-                                    <div class="card bg-light">
-                                        <div class="card-header py-2">
-                                            <small class="fw-bold text-muted">Primary Call (On Hold)</small>
-                                        </div>
-                                        <div class="card-body py-2">
-                                            <div><small><strong>Party:</strong> <span id="primaryCallParty">-</span></small></div>
-                                            <div><small><strong>Duration:</strong> <span id="primaryCallDuration">00:00</span></small></div>
-                                            <div><span class="badge bg-warning text-dark">On Hold</span></div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-6">
-                                    <div class="card border-success">
-                                        <div class="card-header py-2 bg-success text-white">
-                                            <small class="fw-bold">Transfer Consultation</small>
-                                        </div>
-                                        <div class="card-body py-2">
-                                            <div><small><strong>Party:</strong> <span id="transferCallParty">-</span></small></div>
-                                            <div><small><strong>Status:</strong> <span id="transferCallStatus">Calling...</span></small></div>
-                                            <div><small><strong>Duration:</strong> <span id="transferCallDuration">00:00</span></small></div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="row mt-2">
-                                <div class="col-6">
-                                    <button type="button" class="btn btn-success w-100" id="completeTransferBtn">
-                                        <i class="bi bi-check-circle"></i> Complete Transfer
-                                    </button>
-                                </div>
-                                <div class="col-6">
-                                    <button type="button" class="btn btn-secondary w-100" id="cancelTransferBtn">
-                                        <i class="bi bi-x-circle"></i> Cancel Transfer
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Audio Controls -->
-                        <div class="audio-controls">
-                            <h6>Audio Controls</h6>
-                            <div class="row mb-2">
-                                <div class="col-6">
-                                    <label for="micVolume" class="form-label">Microphone</label>
-                                    <input type="range" class="form-range volume-control" id="micVolume" min="0" max="100" value="100">
-                                    <button class="btn btn-sm btn-outline-secondary" id="muteBtn">
-                                        <i class="bi bi-mic"></i> Mute
-                                    </button>
-                                </div>
-                                <div class="col-6">
-                                    <label for="speakerVolume" class="form-label">Speaker</label>
-                                    <input type="range" class="form-range volume-control" id="speakerVolume" min="0" max="100" value="100">
-                                    <span class="badge bg-secondary" id="volumeValue">100%</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Audio Elements Container -->
-                        <div id="audioContainer" class="mt-3">
-                            <h6>Audio Streams</h6>
-                            <div class="text-muted">Audio elements will appear here during calls</div>
-                        </div>
-
-                        <!-- DTMF Controls -->
-                        <div class="mt-3">
-                            <h6>DTMF (During Call)</h6>
-                            <div class="btn-group" role="group">
-                                <button type="button" class="btn btn-outline-secondary btn-sm dtmf-btn" data-tone="1">1</button>
-                                <button type="button" class="btn btn-outline-secondary btn-sm dtmf-btn" data-tone="2">2</button>
-                                <button type="button" class="btn btn-outline-secondary btn-sm dtmf-btn" data-tone="3">3</button>
-                                <button type="button" class="btn btn-outline-secondary btn-sm dtmf-btn" data-tone="*">*</button>
-                                <button type="button" class="btn btn-outline-secondary btn-sm dtmf-btn" data-tone="0">0</button>
-                                <button type="button" class="btn btn-outline-secondary btn-sm dtmf-btn" data-tone="#">#</button>
-                            </div>
+                    <div class="card-body py-2">
+                        <div id="callHistoryList" style="max-height: 250px; overflow-y: auto;">
+                            <div class="text-muted text-center small">No calls yet</div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Debug Information -->
-                <div class="card mt-3">
-                    <div class="card-header">
-                        <h6 class="mb-0">Debug Log</h6>
+                <!-- Debug Log (Collapsible) -->
+                <div class="card">
+                    <div class="card-header py-2">
+                        <a class="text-decoration-none d-flex justify-content-between align-items-center" data-bs-toggle="collapse" href="#debugCollapse">
+                            <h6 class="mb-0"><i class="bi bi-bug"></i> Debug Log</h6>
+                            <i class="bi bi-chevron-down"></i>
+                        </a>
                     </div>
-                    <div class="card-body">
-                        <div id="debugLog" style="height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.8rem; background-color: #f8f9fa; padding: 10px; border-radius: 4px;">
-                            <div class="text-muted">Debug information will appear here...</div>
+                    <div class="collapse" id="debugCollapse">
+                        <div class="card-body py-2">
+                            <div id="debugLog" style="height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.7rem; background-color: #f8f9fa; padding: 8px; border-radius: 4px;">
+                                <div class="text-muted">Debug info appears here...</div>
+                            </div>
+                            <button class="btn btn-sm btn-outline-secondary mt-2" id="clearLogBtn">Clear</button>
                         </div>
-                        <button class="btn btn-sm btn-outline-secondary mt-2" id="clearLogBtn">Clear Log</button>
                     </div>
                 </div>
             </div>
@@ -426,31 +818,95 @@
             </div>
         </div>
 
-        <!-- Call History Panel -->
-        <div class="row mt-4">
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <h5 class="mb-0">
-                            Call History
-                            <span id="missedCallBadge" class="badge bg-danger ms-2" style="display: none;">0</span>
-                        </h5>
-                        <div>
-                            <button class="btn btn-sm btn-outline-danger me-2" id="clearMissedBtn" style="display: none;">
-                                <i class="bi bi-check-all"></i> Clear Missed
-                            </button>
-                            <button class="btn btn-sm btn-outline-secondary" id="clearHistoryBtn">
-                                <i class="bi bi-trash"></i> Clear History
-                            </button>
-                        </div>
-                    </div>
-                    <div class="card-body">
-                        <div id="callHistoryList" style="max-height: 300px; overflow-y: auto;">
-                            <div class="text-muted text-center">No calls yet</div>
-                        </div>
-                    </div>
+    </div>
+
+    <!-- Mobile Bottom Navigation -->
+    <nav class="mobile-bottom-nav">
+        <div class="nav-item">
+            <a class="nav-link" href="#" data-bs-toggle="offcanvas" data-bs-target="#presenceOffcanvas">
+                <i class="bi bi-eye"></i>
+                Presence
+            </a>
+        </div>
+        <div class="nav-item">
+            <a class="nav-link active" href="#">
+                <i class="bi bi-telephone"></i>
+                Dialer
+            </a>
+        </div>
+        <div class="nav-item">
+            <a class="nav-link" href="#" data-bs-toggle="offcanvas" data-bs-target="#historyOffcanvas">
+                <i class="bi bi-clock-history"></i>
+                History
+                <span id="missedCallBadgeMobile" class="badge bg-danger" style="display: none; position: absolute; top: 0; right: 25%;">0</span>
+            </a>
+        </div>
+        <div class="nav-item">
+            <a class="nav-link" href="#" data-bs-toggle="offcanvas" data-bs-target="#debugOffcanvas">
+                <i class="bi bi-bug"></i>
+                Debug
+            </a>
+        </div>
+    </nav>
+
+    <!-- Mobile Offcanvas Panels -->
+    <!-- Presence Offcanvas (Mobile) -->
+    <div class="offcanvas offcanvas-start" tabindex="-1" id="presenceOffcanvas">
+        <div class="offcanvas-header">
+            <h5 class="offcanvas-title"><i class="bi bi-eye"></i> Presence Status</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button>
+        </div>
+        <div class="offcanvas-body offcanvas-panel">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div>
+                    <strong>My Status:</strong>
+                    <span id="myPresenceStatusMobile" class="badge bg-secondary ms-2">Unknown</span>
+                </div>
+                <div>
+                    <span id="subscriptionCountMobile" class="badge bg-info">0</span> active
                 </div>
             </div>
+            <div id="presenceListMobile" style="max-height: calc(80vh - 100px); overflow-y: auto;">
+                <div class="text-muted text-center">Presence info appears here...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- History Offcanvas (Mobile) -->
+    <div class="offcanvas offcanvas-end" tabindex="-1" id="historyOffcanvas">
+        <div class="offcanvas-header">
+            <h5 class="offcanvas-title">
+                <i class="bi bi-clock-history"></i> Call History
+                <span id="missedCallBadgeOffcanvas" class="badge bg-danger ms-2" style="display: none;">0</span>
+            </h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button>
+        </div>
+        <div class="offcanvas-body offcanvas-panel">
+            <div class="mb-2">
+                <button class="btn btn-sm btn-outline-danger me-2" id="clearMissedBtnMobile" style="display: none;">
+                    <i class="bi bi-check-all"></i> Clear Missed
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" id="clearHistoryBtnMobile">
+                    <i class="bi bi-trash"></i> Clear All
+                </button>
+            </div>
+            <div id="callHistoryListMobile" style="max-height: calc(80vh - 120px); overflow-y: auto;">
+                <div class="text-muted text-center">No calls yet</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Debug Offcanvas (Mobile) -->
+    <div class="offcanvas offcanvas-bottom" tabindex="-1" id="debugOffcanvas" style="height: 50vh;">
+        <div class="offcanvas-header">
+            <h5 class="offcanvas-title"><i class="bi bi-bug"></i> Debug Log</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button>
+        </div>
+        <div class="offcanvas-body offcanvas-panel">
+            <div id="debugLogMobile" style="height: calc(50vh - 100px); overflow-y: auto; font-family: monospace; font-size: 0.75rem; background-color: #f8f9fa; padding: 10px; border-radius: 4px;">
+                <div class="text-muted">Debug info appears here...</div>
+            </div>
+            <button class="btn btn-sm btn-outline-secondary mt-2" id="clearLogBtnMobile">Clear Log</button>
         </div>
     </div>
 
@@ -499,24 +955,47 @@
                 this.transferTargetSession = null;
                 this.primaryCallInfo = null;  // Stores info about the primary call during transfer
 
+                // New features
+                this.quickDials = [];
+                this.favorites = [];
+                this.isDND = false;
+                this.registrationExpiry = null;
+                this.regExpiryTimer = null;
+                this.selectedMicId = null;
+                this.selectedSpeakerId = null;
+
                 this.loadSettings();
                 this.loadCallHistory();
                 this.loadMissedCallCount();
+                this.loadQuickDials();
+                this.loadFavorites();
                 this.initializeEventListeners();
+                this.enumerateAudioDevices();
                 this.log('Softphone initialised (JWT Authentication Mode)');
             }
 
             log(message, type = 'info') {
                 const timestamp = new Date().toLocaleTimeString();
                 const logEntry = `[${timestamp}] ${message}`;
+                const className = `text-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'dark'}`;
+
+                // Update desktop debug log
                 const debugLog = document.getElementById('debugLog');
-
                 const div = document.createElement('div');
-                div.className = `text-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'dark'}`;
+                div.className = className;
                 div.textContent = logEntry;
-
                 debugLog.appendChild(div);
                 debugLog.scrollTop = debugLog.scrollHeight;
+
+                // Update mobile debug log
+                const debugLogMobile = document.getElementById('debugLogMobile');
+                if (debugLogMobile) {
+                    const divMobile = document.createElement('div');
+                    divMobile.className = className;
+                    divMobile.textContent = logEntry;
+                    debugLogMobile.appendChild(divMobile);
+                    debugLogMobile.scrollTop = debugLogMobile.scrollHeight;
+                }
 
                 console.log(logEntry);
             }
@@ -613,18 +1092,52 @@
                 // Call history controls
                 document.getElementById('clearHistoryBtn').addEventListener('click', () => this.clearCallHistory());
                 document.getElementById('clearMissedBtn').addEventListener('click', () => this.clearMissedCallCount());
+
+                // Save config button
+                document.getElementById('saveConfigBtn').addEventListener('click', () => this.saveConfigFile());
+
+                // Mobile controls
+                const clearHistoryBtnMobile = document.getElementById('clearHistoryBtnMobile');
+                if (clearHistoryBtnMobile) {
+                    clearHistoryBtnMobile.addEventListener('click', () => this.clearCallHistory());
+                }
+                const clearMissedBtnMobile = document.getElementById('clearMissedBtnMobile');
+                if (clearMissedBtnMobile) {
+                    clearMissedBtnMobile.addEventListener('click', () => this.clearMissedCallCount());
+                }
+                const clearLogBtnMobile = document.getElementById('clearLogBtnMobile');
+                if (clearLogBtnMobile) {
+                    clearLogBtnMobile.addEventListener('click', () => this.clearLog());
+                }
+
+                // DND toggle
+                document.getElementById('dndToggle').addEventListener('change', (e) => {
+                    this.toggleDND(e.target.checked);
+                });
+
+                // Audio device controls
+                document.getElementById('refreshDevicesBtn').addEventListener('click', () => this.enumerateAudioDevices());
+                document.getElementById('micSelect').addEventListener('change', (e) => {
+                    this.selectedMicId = e.target.value;
+                    this.saveSettings();
+                });
+                document.getElementById('speakerSelect').addEventListener('change', (e) => {
+                    this.selectedSpeakerId = e.target.value;
+                    this.applyAudioOutput();
+                    this.saveSettings();
+                });
+
+                // Quick dial
+                document.getElementById('addQuickDialBtn').addEventListener('click', () => this.showAddQuickDialModal());
             }
 
             togglePresenceSettings(enabled) {
-                const row = document.getElementById('presenceSettingsRow');
                 const panel = document.getElementById('presencePanel');
-                row.style.display = enabled ? 'block' : 'none';
                 panel.style.display = enabled ? 'block' : 'none';
             }
 
             toggleTurnSettings(enabled) {
-                const row = document.getElementById('turnSettingsRow');
-                row.style.display = enabled ? 'block' : 'none';
+                // No need to toggle visibility in accordion-based settings
             }
 
             // JWT Authentication Helper - Get Authorization header
@@ -908,6 +1421,10 @@
                             this.enableControls(true);
                             this.log('Successfully registered with SIP server using JWT', 'success');
 
+                            // Update account info and start expiry countdown
+                            this.updateAccountInfo();
+                            this.startRegExpiryCountdown(3600); // Default 1 hour expiry
+
                             // Initialise presence if enabled
                             if (document.getElementById('presenceEnabled').checked) {
                                 this.initPresence();
@@ -985,6 +1502,7 @@
                 this.updateRegistrationStatus('', 'info');
                 this.updateStatusBarStyle('info');
                 this.enableControls(false);
+                this.stopRegExpiryCountdown();
                 this.log('Disconnected', 'info');
             }
 
@@ -1052,6 +1570,15 @@
             }
 
             handleIncomingCall(invitation) {
+                // Check DND status - auto decline if enabled
+                if (this.isDND) {
+                    const callerNumber = invitation.remoteIdentity.uri.user;
+                    this.log(`DND active - auto declining call from ${callerNumber}`, 'info');
+                    invitation.reject();
+                    this.addCallToHistory('missed', callerNumber);
+                    return;
+                }
+
                 this.pendingInvitation = invitation;
 
                 // Handle server-initiated cancellation (answered elsewhere, caller hung up)
@@ -1811,7 +2338,13 @@
                     const duration = Math.floor((new Date() - this.callStartTime) / 1000);
                     const minutes = Math.floor(duration / 60).toString().padStart(2, '0');
                     const seconds = (duration % 60).toString().padStart(2, '0');
-                    document.getElementById('callDuration').textContent = `${minutes}:${seconds}`;
+                    const timeStr = `${minutes}:${seconds}`;
+                    document.getElementById('callDuration').textContent = timeStr;
+                    // Update header duration
+                    const headerDuration = document.getElementById('headerCallDuration');
+                    if (headerDuration) {
+                        headerDuration.textContent = timeStr;
+                    }
                 }, 1000);
             }
 
@@ -1865,7 +2398,13 @@
 
                 // Clear audio container
                 const audioContainer = document.getElementById('audioContainer');
-                audioContainer.innerHTML = '<h6>Audio Streams</h6><div class="text-muted">Audio elements will appear here during calls</div>';
+                audioContainer.innerHTML = '';
+
+                // Reset header call info
+                const headerDuration = document.getElementById('headerCallDuration');
+                if (headerDuration) headerDuration.textContent = '';
+                const headerRemoteParty = document.getElementById('headerRemoteParty');
+                if (headerRemoteParty) headerRemoteParty.textContent = '';
 
                 // Ensure incoming call modal is hidden
                 if (this.incomingCallModal) {
@@ -1877,8 +2416,25 @@
 
             updateConnectionStatus(status) {
                 const statusElement = document.getElementById('connectionStatus');
-                statusElement.className = `status-${status}`;
+                const statusHeader = document.getElementById('statusHeader');
+                const statusDot = document.getElementById('statusDot');
+
                 statusElement.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+
+                // Update header styling
+                statusHeader.className = 'status-header';
+                statusDot.className = 'status-dot';
+
+                if (status === 'connected') {
+                    statusHeader.classList.add('header-connected');
+                    statusDot.classList.add('dot-connected');
+                } else if (status === 'connecting') {
+                    statusHeader.classList.add('header-connecting');
+                    statusDot.classList.add('dot-connecting');
+                } else {
+                    statusHeader.classList.add('header-disconnected');
+                    statusDot.classList.add('dot-disconnected');
+                }
 
                 document.getElementById('connectBtn').disabled = status === 'connected' || status === 'connecting';
                 document.getElementById('disconnectBtn').disabled = status === 'disconnected';
@@ -1888,31 +2444,18 @@
                 const elem = document.getElementById('registrationStatus');
                 elem.textContent = status;
 
-                // Clear previous styling classes
-                elem.className = 'ms-3';
+                // Use registration-badge class for visibility on header
+                elem.className = 'registration-badge ms-2';
 
-                if (type === 'error' || type === 'warning') {
-                    elem.classList.add('text-danger', 'fw-bold');
-                } else if (type === 'success') {
-                    elem.classList.add('text-success', 'fw-bold');
+                if (status) {
+                    elem.style.display = 'inline';
+                } else {
+                    elem.style.display = 'none';
                 }
             }
 
             updateStatusBarStyle(type) {
-                const alertDiv = document.querySelector('#connectionStatus').closest('.alert');
-                if (!alertDiv) return;
-
-                // Reset to base alert class
-                alertDiv.className = 'alert';
-                alertDiv.setAttribute('role', 'alert');
-
-                if (type === 'danger') {
-                    alertDiv.classList.add('alert-danger');
-                } else if (type === 'warning') {
-                    alertDiv.classList.add('alert-warning');
-                } else {
-                    alertDiv.classList.add('alert-info');
-                }
+                // Legacy function - header styling is now handled by updateConnectionStatus
             }
 
             updateCallStatus(status) {
@@ -1921,6 +2464,21 @@
 
             updateRemoteParty(party) {
                 document.getElementById('remoteParty').textContent = party;
+                // Update header
+                const headerRemoteParty = document.getElementById('headerRemoteParty');
+                if (headerRemoteParty) {
+                    headerRemoteParty.textContent = party !== '-' ? party : '';
+                }
+            }
+
+            updateHeaderCallDuration() {
+                const headerDuration = document.getElementById('headerCallDuration');
+                if (headerDuration && this.callStartTime) {
+                    const duration = Math.floor((new Date() - this.callStartTime) / 1000);
+                    const minutes = Math.floor(duration / 60).toString().padStart(2, '0');
+                    const seconds = (duration % 60).toString().padStart(2, '0');
+                    headerDuration.textContent = `${minutes}:${seconds}`;
+                }
             }
 
             enableControls(enabled) {
@@ -1935,6 +2493,30 @@
                 document.querySelectorAll('.dtmf-btn').forEach(btn => {
                     btn.disabled = !enabled;
                 });
+
+                // Show/hide in-call controls and call info card
+                const inCallControls = document.getElementById('inCallControls');
+                const callInfoCard = document.getElementById('callInfoCard');
+                const headerCallInfo = document.getElementById('headerCallInfo');
+                const statusHeader = document.getElementById('statusHeader');
+
+                if (enabled) {
+                    inCallControls.classList.remove('d-none');
+                    callInfoCard.classList.remove('d-none');
+                    callInfoCard.classList.add('on-call');
+                    headerCallInfo.classList.remove('d-none');
+                    statusHeader.classList.remove('header-connected');
+                    statusHeader.classList.add('header-in-call');
+                } else {
+                    inCallControls.classList.add('d-none');
+                    callInfoCard.classList.add('d-none');
+                    callInfoCard.classList.remove('on-call');
+                    headerCallInfo.classList.add('d-none');
+                    if (this.isConnected) {
+                        statusHeader.classList.remove('header-in-call');
+                        statusHeader.classList.add('header-connected');
+                    }
+                }
             }
 
             showError(message) {
@@ -1949,7 +2531,12 @@
 
             clearLog() {
                 const debugLog = document.getElementById('debugLog');
-                debugLog.innerHTML = '<div class="text-muted">Debug information will appear here...</div>';
+                debugLog.innerHTML = '<div class="text-muted">Debug info appears here...</div>';
+
+                const debugLogMobile = document.getElementById('debugLogMobile');
+                if (debugLogMobile) {
+                    debugLogMobile.innerHTML = '<div class="text-muted">Debug info appears here...</div>';
+                }
             }
 
             async testConnection() {
@@ -2090,6 +2677,15 @@
                         if (settings.turnUsername) document.getElementById('turnUsername').value = settings.turnUsername;
                         if (settings.turnCredential) document.getElementById('turnCredential').value = settings.turnCredential;
 
+                        // Load new settings
+                        if (settings.isDND) {
+                            this.isDND = settings.isDND;
+                            document.getElementById('dndToggle').checked = settings.isDND;
+                            this.toggleDND(settings.isDND);
+                        }
+                        if (settings.selectedMicId) this.selectedMicId = settings.selectedMicId;
+                        if (settings.selectedSpeakerId) this.selectedSpeakerId = settings.selectedSpeakerId;
+
                         this.log('Settings loaded from localStorage', 'success');
                     }
                 } catch (error) {
@@ -2112,11 +2708,14 @@
                         turnEnabled: document.getElementById('turnEnabled').checked,
                         turnServer: document.getElementById('turnServer').value,
                         turnUsername: document.getElementById('turnUsername').value,
-                        turnCredential: document.getElementById('turnCredential').value
+                        turnCredential: document.getElementById('turnCredential').value,
+                        // New settings
+                        isDND: this.isDND,
+                        selectedMicId: this.selectedMicId,
+                        selectedSpeakerId: this.selectedSpeakerId
                     };
 
                     localStorage.setItem('sipphone-jwt-settings', JSON.stringify(settings));
-                    this.log('Settings saved to localStorage', 'info');
                 } catch (error) {
                     this.log(`Failed to save settings: ${error.message}`, 'error');
                 }
@@ -2145,6 +2744,48 @@
                 reader.readAsText(file);
 
                 event.target.value = '';
+            }
+
+            saveConfigFile() {
+                try {
+                    const config = {
+                        server: document.getElementById('wsServer').value,
+                        sip_user: document.getElementById('sipUser').value,
+                        jwt_token: document.getElementById('jwtToken').value,
+                        domain: document.getElementById('sipDomain').value
+                    };
+
+                    // Add optional settings if configured
+                    if (document.getElementById('presenceEnabled').checked) {
+                        config.presenceEnabled = true;
+                        config.presenceSubscriptions = document.getElementById('presenceSubscriptions').value;
+                        config.presenceExpires = document.getElementById('presenceExpires').value;
+                        config.publishExpires = document.getElementById('publishExpires').value;
+                    }
+
+                    if (document.getElementById('turnEnabled').checked) {
+                        config.turnEnabled = true;
+                        config.turnServer = document.getElementById('turnServer').value;
+                        config.turnUsername = document.getElementById('turnUsername').value;
+                        config.turnCredential = document.getElementById('turnCredential').value;
+                    }
+
+                    config.sipInstanceEnabled = document.getElementById('sipInstanceEnabled').checked;
+
+                    const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'softphone-config.json';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+
+                    this.log('Configuration saved to file', 'success');
+                } catch (error) {
+                    this.log(`Failed to save config file: ${error.message}`, 'error');
+                }
             }
 
             loadCallHistory() {
@@ -2206,14 +2847,35 @@
             updateMissedCallBadge() {
                 const badge = document.getElementById('missedCallBadge');
                 const clearBtn = document.getElementById('clearMissedBtn');
+                const badgeMobile = document.getElementById('missedCallBadgeMobile');
+                const badgeOffcanvas = document.getElementById('missedCallBadgeOffcanvas');
+                const clearBtnMobile = document.getElementById('clearMissedBtnMobile');
+
+                const count = this.missedCallCount > 99 ? '99+' : this.missedCallCount;
 
                 if (this.missedCallCount > 0) {
-                    badge.textContent = this.missedCallCount > 99 ? '99+' : this.missedCallCount;
+                    badge.textContent = count;
                     badge.style.display = 'inline';
                     clearBtn.style.display = 'inline-block';
+
+                    if (badgeMobile) {
+                        badgeMobile.textContent = count;
+                        badgeMobile.style.display = 'inline';
+                    }
+                    if (badgeOffcanvas) {
+                        badgeOffcanvas.textContent = count;
+                        badgeOffcanvas.style.display = 'inline';
+                    }
+                    if (clearBtnMobile) {
+                        clearBtnMobile.style.display = 'inline-block';
+                    }
                 } else {
                     badge.style.display = 'none';
                     clearBtn.style.display = 'none';
+
+                    if (badgeMobile) badgeMobile.style.display = 'none';
+                    if (badgeOffcanvas) badgeOffcanvas.style.display = 'none';
+                    if (clearBtnMobile) clearBtnMobile.style.display = 'none';
                 }
             }
 
@@ -2245,7 +2907,7 @@
                 const historyContainer = document.getElementById('callHistoryList');
 
                 if (this.callHistory.length === 0) {
-                    historyContainer.innerHTML = '<div class="text-muted text-center">No calls yet</div>';
+                    historyContainer.innerHTML = '<div class="text-muted text-center small">No calls yet</div>';
                     return;
                 }
 
@@ -2278,25 +2940,38 @@
                     }
 
                     const durationStr = call.duration ? this.formatDuration(call.duration) : '-';
+                    const isFav = this.isFavorite(call.number);
+                    const starClass = isFav ? 'bi-star-fill text-warning' : 'bi-star';
+                    const starAction = isFav ? '' : `onclick="softphone.addToFavorites('${call.number}')"`;
 
                     historyHtml += `
                         <div class="d-flex justify-content-between align-items-center border-bottom py-2">
                             <div class="d-flex align-items-center">
-                                <i class="bi ${iconClass} ${iconColor} me-3"></i>
+                                <i class="bi ${iconClass} ${iconColor} me-2"></i>
                                 <div>
-                                    <div class="fw-bold">${call.number}</div>
+                                    <div class="fw-bold small">${call.number}</div>
                                     <small class="text-muted">${typeText} • ${durationStr}</small>
                                 </div>
                             </div>
-                            <div class="text-end">
-                                <small class="text-muted">${timeStr}</small><br>
-                                <small class="text-muted">${dateStr}</small>
+                            <div class="d-flex align-items-center">
+                                <button class="btn btn-sm btn-link p-0 me-2" ${starAction} title="${isFav ? 'In favorites' : 'Add to favorites'}">
+                                    <i class="bi ${starClass}"></i>
+                                </button>
+                                <button class="btn btn-sm btn-link p-0 text-success" onclick="document.getElementById('phoneNumber').value='${call.number}'; softphone.makeCall();" title="Call">
+                                    <i class="bi bi-telephone-fill"></i>
+                                </button>
                             </div>
                         </div>
                     `;
                 });
 
                 historyContainer.innerHTML = historyHtml;
+
+                // Sync with mobile history list
+                const historyContainerMobile = document.getElementById('callHistoryListMobile');
+                if (historyContainerMobile) {
+                    historyContainerMobile.innerHTML = historyHtml || '<div class="text-muted text-center small">No calls yet</div>';
+                }
             }
 
             formatDuration(seconds) {
@@ -2835,6 +3510,305 @@
                 html += '</div>';
 
                 listElem.innerHTML = html;
+
+                // Sync with mobile presence list
+                const listElemMobile = document.getElementById('presenceListMobile');
+                if (listElemMobile) {
+                    listElemMobile.innerHTML = html;
+                }
+
+                // Sync mobile subscription count
+                const countElemMobile = document.getElementById('subscriptionCountMobile');
+                if (countElemMobile) {
+                    countElemMobile.textContent = this.activeSubscribers.size;
+                }
+
+                // Sync mobile presence status
+                const myStatusMobile = document.getElementById('myPresenceStatusMobile');
+                if (myStatusMobile) {
+                    myStatusMobile.textContent = `${this.myPresenceState} (${this.myCallState})`;
+                    myStatusMobile.className = 'badge ms-2 ' + (this.myPresenceState === 'open' ? 'bg-success' : 'bg-secondary');
+                }
+            }
+
+            // ==================== New Features ====================
+
+            // Account Info Methods
+            updateAccountInfo() {
+                const user = document.getElementById('sipUser').value || '-';
+                const domain = document.getElementById('sipDomain').value || '-';
+                document.getElementById('accountUser').textContent = user;
+                document.getElementById('accountDomain').textContent = domain;
+            }
+
+            startRegExpiryCountdown(expires = 3600) {
+                this.registrationExpiry = Date.now() + (expires * 1000);
+
+                if (this.regExpiryTimer) {
+                    clearInterval(this.regExpiryTimer);
+                }
+
+                this.regExpiryTimer = setInterval(() => {
+                    const remaining = Math.max(0, Math.floor((this.registrationExpiry - Date.now()) / 1000));
+                    const minutes = Math.floor(remaining / 60);
+                    const seconds = remaining % 60;
+                    document.getElementById('accountRegExpiry').textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+
+                    if (remaining <= 0) {
+                        clearInterval(this.regExpiryTimer);
+                        document.getElementById('accountRegExpiry').textContent = 'Expired';
+                    }
+                }, 1000);
+            }
+
+            stopRegExpiryCountdown() {
+                if (this.regExpiryTimer) {
+                    clearInterval(this.regExpiryTimer);
+                    this.regExpiryTimer = null;
+                }
+                document.getElementById('accountRegExpiry').textContent = '-';
+            }
+
+            // DND Methods
+            toggleDND(enabled) {
+                this.isDND = enabled;
+                const statusHeader = document.getElementById('statusHeader');
+                const headerCallInfo = document.getElementById('headerCallInfo');
+
+                if (enabled) {
+                    this.log('Do Not Disturb enabled', 'info');
+                    // Add DND badge to header
+                    let dndBadge = document.getElementById('dndBadge');
+                    if (!dndBadge) {
+                        dndBadge = document.createElement('span');
+                        dndBadge.id = 'dndBadge';
+                        dndBadge.className = 'dnd-badge';
+                        dndBadge.textContent = 'DND';
+                        headerCallInfo.parentElement.insertBefore(dndBadge, headerCallInfo);
+                    }
+                } else {
+                    this.log('Do Not Disturb disabled', 'info');
+                    const dndBadge = document.getElementById('dndBadge');
+                    if (dndBadge) dndBadge.remove();
+                }
+
+                this.saveSettings();
+            }
+
+            // Audio Device Methods
+            async enumerateAudioDevices() {
+                try {
+                    // Request permission first
+                    await navigator.mediaDevices.getUserMedia({ audio: true });
+
+                    const devices = await navigator.mediaDevices.enumerateDevices();
+                    const micSelect = document.getElementById('micSelect');
+                    const speakerSelect = document.getElementById('speakerSelect');
+
+                    // Clear existing options
+                    micSelect.innerHTML = '<option value="">Default</option>';
+                    speakerSelect.innerHTML = '<option value="">Default</option>';
+
+                    devices.forEach(device => {
+                        const option = document.createElement('option');
+                        option.value = device.deviceId;
+                        option.textContent = device.label || `${device.kind} (${device.deviceId.slice(0, 8)}...)`;
+
+                        if (device.kind === 'audioinput') {
+                            micSelect.appendChild(option);
+                        } else if (device.kind === 'audiooutput') {
+                            speakerSelect.appendChild(option);
+                        }
+                    });
+
+                    // Restore saved selections
+                    if (this.selectedMicId) micSelect.value = this.selectedMicId;
+                    if (this.selectedSpeakerId) speakerSelect.value = this.selectedSpeakerId;
+
+                    this.log('Audio devices enumerated', 'success');
+                } catch (error) {
+                    this.log(`Failed to enumerate audio devices: ${error.message}`, 'error');
+                }
+            }
+
+            applyAudioOutput() {
+                const audio = document.getElementById('remoteAudio');
+                if (audio && this.selectedSpeakerId && audio.setSinkId) {
+                    audio.setSinkId(this.selectedSpeakerId).catch(err => {
+                        this.log(`Failed to set audio output: ${err.message}`, 'error');
+                    });
+                }
+            }
+
+            // Quick Dial Methods
+            loadQuickDials() {
+                try {
+                    const saved = localStorage.getItem('sipphone-jwt-quickdials');
+                    if (saved) {
+                        this.quickDials = JSON.parse(saved);
+                        this.renderQuickDials();
+                    }
+                } catch (error) {
+                    this.log(`Failed to load quick dials: ${error.message}`, 'error');
+                }
+            }
+
+            saveQuickDials() {
+                try {
+                    localStorage.setItem('sipphone-jwt-quickdials', JSON.stringify(this.quickDials));
+                } catch (error) {
+                    this.log(`Failed to save quick dials: ${error.message}`, 'error');
+                }
+            }
+
+            renderQuickDials() {
+                const container = document.getElementById('quickDialList');
+
+                if (this.quickDials.length === 0) {
+                    container.innerHTML = '<div class="text-muted text-center small">No quick dials set</div>';
+                    return;
+                }
+
+                let html = '';
+                this.quickDials.forEach((qd, index) => {
+                    html += `
+                        <div class="quick-dial-item" data-number="${qd.number}">
+                            <div>
+                                <div class="dial-name">${qd.name}</div>
+                                <div class="dial-number">${qd.number}</div>
+                            </div>
+                            <div class="dial-actions">
+                                <button class="btn btn-sm btn-link btn-call p-0 me-1" onclick="event.stopPropagation(); softphone.dialQuickDial('${qd.number}')">
+                                    <i class="bi bi-telephone-fill"></i>
+                                </button>
+                                <button class="btn btn-sm btn-link btn-remove p-0" onclick="event.stopPropagation(); softphone.removeQuickDial(${index})">
+                                    <i class="bi bi-x"></i>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                });
+                container.innerHTML = html;
+
+                // Add click handlers for dialing
+                container.querySelectorAll('.quick-dial-item').forEach(item => {
+                    item.addEventListener('click', () => {
+                        const number = item.dataset.number;
+                        document.getElementById('phoneNumber').value = number;
+                    });
+                });
+            }
+
+            showAddQuickDialModal() {
+                const name = prompt('Enter name for quick dial:');
+                if (!name) return;
+
+                const number = prompt('Enter phone number:');
+                if (!number) return;
+
+                this.quickDials.push({ name, number });
+                this.saveQuickDials();
+                this.renderQuickDials();
+                this.log(`Quick dial added: ${name} - ${number}`, 'success');
+            }
+
+            removeQuickDial(index) {
+                const removed = this.quickDials.splice(index, 1);
+                this.saveQuickDials();
+                this.renderQuickDials();
+                this.log(`Quick dial removed: ${removed[0]?.name}`, 'info');
+            }
+
+            dialQuickDial(number) {
+                document.getElementById('phoneNumber').value = number;
+                this.makeCall();
+            }
+
+            // Favorites Methods
+            loadFavorites() {
+                try {
+                    const saved = localStorage.getItem('sipphone-jwt-favorites');
+                    if (saved) {
+                        this.favorites = JSON.parse(saved);
+                        this.renderFavorites();
+                    }
+                } catch (error) {
+                    this.log(`Failed to load favorites: ${error.message}`, 'error');
+                }
+            }
+
+            saveFavorites() {
+                try {
+                    localStorage.setItem('sipphone-jwt-favorites', JSON.stringify(this.favorites));
+                } catch (error) {
+                    this.log(`Failed to save favorites: ${error.message}`, 'error');
+                }
+            }
+
+            renderFavorites() {
+                const container = document.getElementById('favoritesList');
+
+                if (this.favorites.length === 0) {
+                    container.innerHTML = '<div class="text-muted text-center small">No favorites yet</div>';
+                    return;
+                }
+
+                let html = '';
+                this.favorites.forEach((fav, index) => {
+                    html += `
+                        <div class="favorite-item" data-number="${fav.number}">
+                            <div>
+                                <div class="fav-name"><i class="bi bi-star-fill text-warning me-1"></i>${fav.number}</div>
+                            </div>
+                            <div class="fav-actions">
+                                <button class="btn btn-sm btn-link btn-call p-0 me-1" onclick="event.stopPropagation(); softphone.dialFavorite('${fav.number}')">
+                                    <i class="bi bi-telephone-fill text-success"></i>
+                                </button>
+                                <button class="btn btn-sm btn-link btn-remove p-0" onclick="event.stopPropagation(); softphone.removeFavorite(${index})">
+                                    <i class="bi bi-x"></i>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                });
+                container.innerHTML = html;
+
+                // Add click handlers
+                container.querySelectorAll('.favorite-item').forEach(item => {
+                    item.addEventListener('click', () => {
+                        document.getElementById('phoneNumber').value = item.dataset.number;
+                    });
+                });
+            }
+
+            addToFavorites(number) {
+                if (this.favorites.find(f => f.number === number)) {
+                    this.log(`${number} is already in favorites`, 'info');
+                    return;
+                }
+
+                this.favorites.push({ number });
+                this.saveFavorites();
+                this.renderFavorites();
+                this.renderCallHistory(); // Re-render to update star icons
+                this.log(`Added ${number} to favorites`, 'success');
+            }
+
+            removeFavorite(index) {
+                const removed = this.favorites.splice(index, 1);
+                this.saveFavorites();
+                this.renderFavorites();
+                this.renderCallHistory(); // Re-render to update star icons
+                this.log(`Removed ${removed[0]?.number} from favorites`, 'info');
+            }
+
+            dialFavorite(number) {
+                document.getElementById('phoneNumber').value = number;
+                this.makeCall();
+            }
+
+            isFavorite(number) {
+                return this.favorites.some(f => f.number === number);
             }
 
             handleDisconnection(error) {
