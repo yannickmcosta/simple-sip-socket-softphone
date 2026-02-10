@@ -135,6 +135,20 @@
             border-left-color: #28a745;
             background: #d4edda;
         }
+        .custom-headers-card {
+            border-left: 4px solid #6f42c1;
+            background: #f8f5ff;
+            font-family: monospace;
+            font-size: 0.85rem;
+        }
+        .custom-headers-card .header-name {
+            color: #6f42c1;
+            font-weight: 600;
+        }
+        .custom-headers-card .header-value {
+            color: #333;
+            word-break: break-all;
+        }
 
         /* Side panels */
         .side-panel {
@@ -669,6 +683,18 @@
 
                                 <!-- Audio Container -->
                                 <div id="audioContainer" class="mt-2 d-none"></div>
+                            </div>
+                        </div>
+
+                        <!-- Custom SIP Headers Card (shown during calls) -->
+                        <div id="customHeadersCard" class="card custom-headers-card mt-2 d-none">
+                            <div class="card-body py-2">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <small class="text-muted fw-bold">Custom SIP Headers</small>
+                                    <span class="badge bg-secondary" id="customHeaderCount">0</span>
+                                </div>
+                                <div id="customHeadersList"></div>
+                                <div id="noCustomHeaders" class="text-muted small">No custom headers received</div>
                             </div>
                         </div>
                     </div>
@@ -1537,6 +1563,8 @@
 
                             // Debug logging for audio streams
                             this.debugAudioState(session);
+
+                            this.displayCustomHeaders(session);
                             break;
                         case SIP.SessionState.Terminated:
                             this.updateCallStatus('Call Ended');
@@ -1682,6 +1710,63 @@
                 }
 
                 this.log('=== AUDIO DEBUG END ===', 'info');
+            }
+
+            extractCustomHeaders(session) {
+                let headers = {};
+
+                // Incoming call: INVITE request headers
+                if (session.incomingInviteRequest) {
+                    headers = session.incomingInviteRequest.message.headers;
+                }
+                // Outgoing call: 200 OK response headers from dialog
+                else if (session._dialog && session._dialog.initialTransaction &&
+                         session._dialog.initialTransaction.message) {
+                    headers = session._dialog.initialTransaction.message.headers;
+                }
+
+                const customHeaders = {};
+                for (const [name, values] of Object.entries(headers)) {
+                    if (name.startsWith('X-')) {
+                        customHeaders[name] = values.map(v => v.raw).join(', ');
+                    }
+                }
+                return customHeaders;
+            }
+
+            displayCustomHeaders(session) {
+                const customHeaders = this.extractCustomHeaders(session);
+                const card = document.getElementById('customHeadersCard');
+                const list = document.getElementById('customHeadersList');
+                const noHeaders = document.getElementById('noCustomHeaders');
+                const count = document.getElementById('customHeaderCount');
+
+                list.innerHTML = '';
+                const entries = Object.entries(customHeaders);
+
+                card.classList.remove('d-none');
+
+                if (entries.length > 0) {
+                    noHeaders.classList.add('d-none');
+                    count.textContent = entries.length;
+
+                    entries.forEach(([name, value]) => {
+                        const row = document.createElement('div');
+                        row.className = 'mb-1';
+                        const nameSpan = document.createElement('span');
+                        nameSpan.className = 'header-name';
+                        nameSpan.textContent = name + ':';
+                        const valueSpan = document.createElement('span');
+                        valueSpan.className = 'header-value';
+                        valueSpan.textContent = ' ' + value;
+                        row.appendChild(nameSpan);
+                        row.appendChild(valueSpan);
+                        list.appendChild(row);
+                    });
+                } else {
+                    noHeaders.classList.remove('d-none');
+                    count.textContent = '0';
+                }
             }
 
             hangupCall() {
@@ -2223,6 +2308,10 @@
                 // Clear audio container
                 const audioContainer = document.getElementById('audioContainer');
                 audioContainer.innerHTML = '';
+
+                // Hide custom SIP headers card
+                document.getElementById('customHeadersCard').classList.add('d-none');
+                document.getElementById('customHeadersList').innerHTML = '';
 
                 // Reset header call info
                 const headerDuration = document.getElementById('headerCallDuration');
