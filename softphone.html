@@ -52,6 +52,11 @@
         .presence-card { transition: all 0.3s ease; }
         .presence-card:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
 
+        /* Registration expiry warning styles */
+        .reg-expiry-normal { color: inherit; }
+        .reg-expiry-warning { color: #e67e22; font-weight: 600; }
+        .reg-expiry-danger { color: #dc3545; font-weight: 700; animation: blink 1s infinite; }
+
         /* Sticky Status Header */
         .status-header {
             position: sticky;
@@ -394,6 +399,23 @@
                                 <input type="checkbox" class="form-check-input" id="sipInstanceEnabled" checked>
                                 <label class="form-check-label" for="sipInstanceEnabled">Use +sip.instance</label>
                                 <small class="d-block text-muted">Prevents duplicate contact registrations</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Correlation ID -->
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#correlationSettings">
+                            <i class="bi bi-link-45deg me-2"></i> Correlation ID
+                        </button>
+                    </h2>
+                    <div id="correlationSettings" class="accordion-collapse collapse" data-bs-parent="#settingsAccordion">
+                        <div class="accordion-body">
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input" id="correlationIdEnabled">
+                                <label class="form-check-label" for="correlationIdEnabled">Send X-RP-Correlation-ID</label>
+                                <small class="d-block text-muted">Adds a unique UUIDv4 header to each outbound INVITE for call tracing</small>
                             </div>
                         </div>
                     </div>
@@ -948,6 +970,8 @@
                 this.isDND = false;
                 this.registrationExpiry = null;
                 this.regExpiryTimer = null;
+                this.regExpiryWarningThreshold = 120; // orange warning at 2 min remaining
+                this.regExpiryDangerThreshold = 30;   // red danger at 30s remaining
                 this.selectedMicId = null;
                 this.selectedSpeakerId = null;
 
@@ -1009,6 +1033,7 @@
                 document.getElementById('presenceExpires').addEventListener('input', () => this.saveSettings());
                 document.getElementById('publishExpires').addEventListener('input', () => this.saveSettings());
                 document.getElementById('sipInstanceEnabled').addEventListener('change', () => this.saveSettings());
+                document.getElementById('correlationIdEnabled').addEventListener('change', () => this.saveSettings());
 
                 // Dialer controls
                 document.getElementById('callBtn').addEventListener('click', () => this.makeCall());
@@ -1291,6 +1316,25 @@
 
                     const registerer = new SIP.Registerer(this.ua, registererOptions);
 
+                    // Wrap registerer.register() to intercept all REGISTER 200 OK responses,
+                    // including SIP.js internal auto-refresh re-registrations.
+                    const originalRegister = registerer.register.bind(registerer);
+                    const self = this;
+                    registerer.register = function(options = {}) {
+                        const wrappedOptions = { ...options };
+                        const originalOnAccept = wrappedOptions.requestDelegate?.onAccept;
+                        wrappedOptions.requestDelegate = {
+                            ...wrappedOptions.requestDelegate,
+                            onAccept: (response) => {
+                                const expires = self._extractExpiresFromResponse(response);
+                                self.log(`Registration accepted, expires in ${expires}s`, 'success');
+                                self.startRegExpiryCountdown(expires);
+                                if (originalOnAccept) originalOnAccept(response);
+                            }
+                        };
+                        return originalRegister(wrappedOptions);
+                    };
+
                     registerer.stateChange.addListener((newState) => {
                         this.log(`Registration state changed: ${newState}`, newState === SIP.RegistererState.Registered ? 'success' : 'info');
 
@@ -1301,9 +1345,8 @@
                             this.enableControls(true);
                             this.log('Successfully registered with SIP server', 'success');
 
-                            // Update account info and start expiry countdown
+                            // Update account info (countdown is started by the onAccept wrapper)
                             this.updateAccountInfo();
-                            this.startRegExpiryCountdown(3600);
 
                             // Initialise presence if enabled
                             if (document.getElementById('presenceEnabled').checked) {
@@ -1405,7 +1448,15 @@
 
                     this.log(`Making call to: ${phoneNumber}`);
 
-                    const inviter = new SIP.Inviter(this.ua, targetUri);
+                    const extraHeaders = [];
+                    if (document.getElementById('correlationIdEnabled').checked) {
+                        const correlationId = crypto.randomUUID();
+                        extraHeaders.push(`X-RP-Correlation-ID: ${correlationId}`);
+                        this.log(`Call correlation ID: ${correlationId}`, 'info');
+                    }
+
+                    const inviterOptions = extraHeaders.length > 0 ? { extraHeaders } : {};
+                    const inviter = new SIP.Inviter(this.ua, targetUri, inviterOptions);
                     this.currentSession = inviter;
                     this.currentCallType = 'outgoing';
 
@@ -2590,6 +2641,9 @@
                         if (settings.sipInstanceEnabled !== undefined) {
                             document.getElementById('sipInstanceEnabled').checked = settings.sipInstanceEnabled;
                         }
+                        if (settings.correlationIdEnabled !== undefined) {
+                            document.getElementById('correlationIdEnabled').checked = settings.correlationIdEnabled;
+                        }
                         if (settings.presenceSubscriptions) document.getElementById('presenceSubscriptions').value = settings.presenceSubscriptions;
                         if (settings.presenceExpires) document.getElementById('presenceExpires').value = settings.presenceExpires;
                         if (settings.publishExpires) document.getElementById('publishExpires').value = settings.publishExpires;
@@ -2619,6 +2673,7 @@
                         sipDomain: document.getElementById('sipDomain').value,
                         presenceEnabled: document.getElementById('presenceEnabled').checked,
                         sipInstanceEnabled: document.getElementById('sipInstanceEnabled').checked,
+                        correlationIdEnabled: document.getElementById('correlationIdEnabled').checked,
                         presenceSubscriptions: document.getElementById('presenceSubscriptions').value,
                         presenceExpires: document.getElementById('presenceExpires').value,
                         publishExpires: document.getElementById('publishExpires').value,
@@ -2647,6 +2702,9 @@
                         if (config.sip_user) document.getElementById('sipUser').value = config.sip_user;
                         if (config.password) document.getElementById('sipPassword').value = config.password;
                         if (config.domain) document.getElementById('sipDomain').value = config.domain;
+                        if (config.correlationIdEnabled !== undefined) {
+                            document.getElementById('correlationIdEnabled').checked = config.correlationIdEnabled;
+                        }
 
                         this.saveSettings();
                         this.log('Configuration loaded from file', 'success');
@@ -3389,24 +3447,68 @@
                 document.getElementById('accountDomain').textContent = domain;
             }
 
-            startRegExpiryCountdown(expires = 3600) {
+            _extractExpiresFromResponse(response) {
+                try {
+                    const contactHeaders = response.message.getHeaders('contact');
+                    if (contactHeaders && contactHeaders.length > 0) {
+                        for (let i = 0; i < contactHeaders.length; i++) {
+                            const contact = response.message.parseHeader('contact', i);
+                            if (contact && contact.getParam && contact.getParam('expires')) {
+                                const expires = Number(contact.getParam('expires'));
+                                if (!isNaN(expires) && expires > 0) return expires;
+                            }
+                        }
+                    }
+                } catch (e) {
+                    this.log(`Could not parse Contact expires: ${e.message}`, 'info');
+                }
+
+                try {
+                    if (response.message.hasHeader('expires')) {
+                        const expires = Number(response.message.getHeader('expires'));
+                        if (!isNaN(expires) && expires > 0) return expires;
+                    }
+                } catch (e) {
+                    this.log(`Could not parse Expires header: ${e.message}`, 'info');
+                }
+
+                return 600;
+            }
+
+            startRegExpiryCountdown(expires = 600) {
                 this.registrationExpiry = Date.now() + (expires * 1000);
 
                 if (this.regExpiryTimer) {
                     clearInterval(this.regExpiryTimer);
                 }
 
+                const expiryEl = document.getElementById('accountRegExpiry');
+                this._updateExpiryDisplay(expiryEl, expires);
+
                 this.regExpiryTimer = setInterval(() => {
                     const remaining = Math.max(0, Math.floor((this.registrationExpiry - Date.now()) / 1000));
-                    const minutes = Math.floor(remaining / 60);
-                    const seconds = remaining % 60;
-                    document.getElementById('accountRegExpiry').textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                    this._updateExpiryDisplay(expiryEl, remaining);
 
                     if (remaining <= 0) {
                         clearInterval(this.regExpiryTimer);
-                        document.getElementById('accountRegExpiry').textContent = 'Expired';
+                        expiryEl.textContent = 'Expired';
+                        expiryEl.className = 'text-truncate ms-2 reg-expiry-danger';
                     }
                 }, 1000);
+            }
+
+            _updateExpiryDisplay(element, remaining) {
+                const minutes = Math.floor(remaining / 60);
+                const seconds = remaining % 60;
+                element.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+
+                if (remaining <= this.regExpiryDangerThreshold) {
+                    element.className = 'text-truncate ms-2 reg-expiry-danger';
+                } else if (remaining <= this.regExpiryWarningThreshold) {
+                    element.className = 'text-truncate ms-2 reg-expiry-warning';
+                } else {
+                    element.className = 'text-truncate ms-2 reg-expiry-normal';
+                }
             }
 
             stopRegExpiryCountdown() {
@@ -3414,7 +3516,9 @@
                     clearInterval(this.regExpiryTimer);
                     this.regExpiryTimer = null;
                 }
-                document.getElementById('accountRegExpiry').textContent = '-';
+                const expiryEl = document.getElementById('accountRegExpiry');
+                expiryEl.textContent = '-';
+                expiryEl.className = 'text-truncate ms-2';
             }
 
             // DND Methods
@@ -3501,6 +3605,7 @@
                     }
 
                     config.sipInstanceEnabled = document.getElementById('sipInstanceEnabled').checked;
+                    config.correlationIdEnabled = document.getElementById('correlationIdEnabled').checked;
 
                     const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
                     const url = URL.createObjectURL(blob);
