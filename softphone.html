@@ -98,6 +98,57 @@
             margin-right: 6px;
         }
 
+        /* Sticky Status Footer */
+        .status-footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            z-index: 1019;
+            background: linear-gradient(135deg, #343a40 0%, #23272b 100%);
+            color: white;
+            padding: 0.5rem 1rem;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.2);
+            font-size: 0.875rem;
+            min-height: 44px;
+            display: flex;
+            align-items: center;
+        }
+        .status-footer.footer-info    { background: linear-gradient(135deg, #0d6efd 0%, #0a58ca 100%); }
+        .status-footer.footer-success  { background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%); }
+        .status-footer.footer-warning  { background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%); color: #212529; }
+        .status-footer.footer-error    { background: linear-gradient(135deg, #dc3545 0%, #c82333 100%); }
+        .status-footer.footer-severe   { background: linear-gradient(135deg, #842029 0%, #58151c 100%); }
+
+        .footer-code-badge {
+            font-family: monospace;
+            font-weight: 700;
+            font-size: 1rem;
+            background: rgba(255,255,255,0.2);
+            padding: 2px 8px;
+            border-radius: 4px;
+            margin-right: 0.5rem;
+        }
+        .footer-q850-badge {
+            font-size: 0.75rem;
+            background: rgba(255,255,255,0.15);
+            padding: 1px 8px;
+            border-radius: 10px;
+            margin-left: 0.5rem;
+            white-space: nowrap;
+        }
+        .footer-description {
+            color: rgba(255,255,255,0.85);
+            font-size: 0.8rem;
+        }
+        .status-footer.footer-warning .footer-description { color: rgba(0,0,0,0.7); }
+        .footer-timestamp {
+            color: rgba(255,255,255,0.6);
+            font-size: 0.75rem;
+            white-space: nowrap;
+        }
+        .status-footer.footer-warning .footer-timestamp { color: rgba(0,0,0,0.5); }
+
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.6; }
@@ -110,7 +161,7 @@
         /* Main content area */
         .main-content {
             padding-top: 1rem;
-            padding-bottom: 80px;
+            padding-bottom: 124px;
         }
 
         /* Dialer styling */
@@ -212,7 +263,8 @@
         @media (max-width: 991.98px) {
             .mobile-bottom-nav { display: flex; }
             .side-panel-col { display: none; }
-            .main-content { padding-bottom: 100px; }
+            .main-content { padding-bottom: 155px; }
+            .status-footer { bottom: 65px; }
         }
 
         /* Offcanvas panels for mobile */
@@ -879,6 +931,28 @@
         </div>
     </nav>
 
+    <!-- Status Footer -->
+    <footer class="status-footer" id="statusFooter" style="display: none;">
+        <div class="container-fluid">
+            <div class="d-flex justify-content-between align-items-center w-100">
+                <div class="d-flex align-items-center flex-wrap gap-1">
+                    <i class="bi bi-info-circle me-1" id="footerIcon"></i>
+                    <span class="footer-code-badge" id="footerSipCode"></span>
+                    <span class="fw-semibold" id="footerSipReason"></span>
+                    <span class="footer-q850-badge d-none" id="footerQ850"></span>
+                    <span class="ms-2 footer-description" id="footerDescription"></span>
+                </div>
+                <div class="d-flex align-items-center ms-2 flex-shrink-0">
+                    <small class="footer-timestamp me-2" id="footerTimestamp"></small>
+                    <button class="btn btn-sm p-0 px-1" style="color: rgba(255,255,255,0.7); line-height:1;"
+                            id="footerClearBtn" onclick="window.softphone.clearSIPEvent()" title="Dismiss">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </footer>
+
     <!-- Mobile Offcanvas Panels -->
     <!-- Presence Offcanvas (Mobile) -->
     <div class="offcanvas offcanvas-start" tabindex="-1" id="presenceOffcanvas">
@@ -1487,6 +1561,15 @@
                     inviter.invite({
                         sessionDescriptionHandlerOptions: {
                             constraints: { audio: true, video: false }
+                        },
+                        requestDelegate: {
+                            onReject: (inviteResponse) => {
+                                const code = inviteResponse.message.statusCode;
+                                const reason = inviteResponse.message.reasonPhrase;
+                                const q850 = this.parseReasonHeader(inviteResponse.message.getHeader('Reason'));
+                                this.displaySIPEvent(code, reason, q850);
+                                this.log(`Call rejected: ${code} ${reason}`, 'error');
+                            }
                         }
                     });
 
@@ -1534,6 +1617,12 @@
                             const callerNumber = this.pendingInvitation?.remoteIdentity?.uri?.user || 'Unknown';
                             this.addCallToHistory('missed', callerNumber);
                             this.log('Incoming call cancelled by caller', 'info');
+                        }
+
+                        // Show any non-trivial Q.850 cause codes in footer
+                        const q850 = this.parseReasonHeader(reasonHeader);
+                        if (q850 && q850.cause !== 16 && q850.cause !== 26 && q850.cause !== 200) {
+                            this.displaySIPEvent(q850.cause, this.getQ850Description(q850.cause), q850);
                         }
 
                         // Hide modal and clean up
@@ -1646,6 +1735,20 @@
                             break;
                     }
                 });
+
+                // Capture Q.850 cause codes from network-initiated BYE
+                session.delegate = {
+                    onBye: (byeRequest) => {
+                        const reasonHeader = byeRequest.message.getHeader('Reason');
+                        const q850 = this.parseReasonHeader(reasonHeader);
+                        // Q.850 cause 16 = Normal call clearing — not noteworthy
+                        if (q850 && q850.cause !== 16) {
+                            const desc = this.getQ850Description(q850.cause);
+                            this.displaySIPEvent(q850.cause, desc, q850);
+                            this.log(`Call ended with Q.850 cause ${q850.cause}: ${desc}`, 'info');
+                        }
+                    }
+                };
 
                 // Set up peer connection delegate when session description handler is available
                 const setupPeerConnectionDelegate = () => {
@@ -2182,15 +2285,65 @@
                 try {
                     this.log('Completing attended transfer...');
 
+                    // Set up termination listeners BEFORE sending REFER
+                    // This ensures we catch the BYE from Asterisk
+                    const waitForTermination = () => {
+                        return new Promise((resolve) => {
+                            let resolved = false;
+                            const checkAndResolve = () => {
+                                if (!resolved) {
+                                    resolved = true;
+                                    resolve();
+                                }
+                            };
+
+                            // Listen for primary session termination
+                            if (this.primarySession) {
+                                this.primarySession.stateChange.addListener((state) => {
+                                    if (state === SIP.SessionState.Terminated) {
+                                        this.log('Primary session terminated');
+                                        checkAndResolve();
+                                    }
+                                });
+                            }
+
+                            // Listen for transfer target session termination
+                            if (this.transferTargetSession) {
+                                this.transferTargetSession.stateChange.addListener((state) => {
+                                    if (state === SIP.SessionState.Terminated) {
+                                        this.log('Transfer target session terminated');
+                                        checkAndResolve();
+                                    }
+                                });
+                            }
+                        });
+                    };
+
+                    const terminationPromise = waitForTermination();
+
                     // Use REFER with the transfer target session for attended transfer
                     await this.primarySession.refer(this.transferTargetSession);
 
                     this.log('Attended transfer completed', 'success');
 
-                    // Clean up
+                    // Wait for sessions to properly terminate (with 5 second timeout)
+                    // This ensures BYE is received before we clear session state
+                    this.log('Waiting for session termination...');
+                    await Promise.race([
+                        terminationPromise,
+                        new Promise(resolve => setTimeout(() => {
+                            this.log('Session termination timeout - forcing cleanup');
+                            resolve();
+                        }, 5000))
+                    ]);
+
+                    // Now safe to clean up
+                    this.log('Cleaning up transfer state');
                     this.resetTransferState();
                 } catch (error) {
                     this.log(`Attended transfer completion failed: ${error.message}`, 'error');
+                    // Still try to clean up on error
+                    this.resetTransferState();
                 }
             }
 
@@ -3834,6 +3987,131 @@
 
             isFavorite(number) {
                 return this.favorites.some(f => f.number === number);
+            }
+
+            getSIPDescription(code) {
+                const descriptions = {
+                    100: 'Call request is being processed',
+                    180: 'Remote phone is ringing',
+                    183: 'Session in progress',
+                    400: 'Bad request — malformed SIP message',
+                    401: 'Authentication required',
+                    403: 'Access forbidden — check credentials',
+                    404: 'Number not found on this server',
+                    408: 'Remote party did not respond in time',
+                    480: 'Called party is temporarily unavailable',
+                    481: 'Call session does not exist',
+                    486: 'Called party is currently busy',
+                    487: 'Call was cancelled before being answered',
+                    500: 'Internal server error',
+                    503: 'Service temporarily unavailable',
+                    504: 'Server timeout — no response from upstream',
+                    600: 'All endpoints are busy',
+                    603: 'Call was declined by the remote party',
+                    604: 'Number does not exist anywhere',
+                    606: 'Settings are incompatible with remote party',
+                };
+                return descriptions[code] || '';
+            }
+
+            getQ850Description(cause) {
+                const descriptions = {
+                    1: 'Unallocated number',
+                    2: 'No route to network',
+                    3: 'No route to destination',
+                    16: 'Normal call clearing',
+                    17: 'User busy',
+                    18: 'No user responding',
+                    19: 'No answer from user',
+                    20: 'Subscriber absent',
+                    21: 'Call rejected',
+                    22: 'Number changed',
+                    26: 'Answered on another device',
+                    27: 'Destination out of order',
+                    28: 'Invalid number format',
+                    31: 'Normal, unspecified',
+                    34: 'No circuit available',
+                    38: 'Network out of order',
+                    41: 'Temporary failure',
+                    42: 'Network congestion',
+                    47: 'Resource unavailable',
+                    55: 'Incoming calls barred',
+                    57: 'Bearer not authorized',
+                    65: 'Bearer capability not implemented',
+                    69: 'Requested facility not implemented',
+                    79: 'Service not implemented',
+                    87: 'User not in group',
+                    88: 'Incompatible destination',
+                    95: 'Invalid message',
+                    102: 'Recovery on timer expiry',
+                    111: 'Protocol error',
+                    127: 'Interworking, unspecified',
+                    200: 'Answered elsewhere',
+                };
+                return descriptions[cause] || `Cause ${cause}`;
+            }
+
+            parseReasonHeader(reasonHeader) {
+                if (!reasonHeader) return null;
+                const causeMatch = reasonHeader.match(/cause=(\d+)/i);
+                if (!causeMatch) return null;
+                const cause = parseInt(causeMatch[1]);
+                const textMatch = reasonHeader.match(/text="([^"]+)"/i);
+                const text = textMatch ? textMatch[1] : this.getQ850Description(cause);
+                return { cause, text };
+            }
+
+            displaySIPEvent(code, reason, q850Data = null) {
+                const footer = document.getElementById('statusFooter');
+                const footerCode = document.getElementById('footerSipCode');
+                const footerReason = document.getElementById('footerSipReason');
+                const footerQ850 = document.getElementById('footerQ850');
+                const footerDescription = document.getElementById('footerDescription');
+                const footerTimestamp = document.getElementById('footerTimestamp');
+                const footerIcon = document.getElementById('footerIcon');
+
+                footerCode.textContent = code;
+                footerReason.textContent = reason;
+
+                const description = this.getSIPDescription(parseInt(code));
+                footerDescription.textContent = description;
+
+                if (q850Data) {
+                    footerQ850.textContent = `Q.850 ${q850Data.cause}: ${q850Data.text}`;
+                    footerQ850.classList.remove('d-none');
+                } else {
+                    footerQ850.classList.add('d-none');
+                }
+
+                footerTimestamp.textContent = new Date().toLocaleTimeString();
+
+                // Reset classes and apply colour based on code range
+                footer.className = 'status-footer';
+                const numCode = parseInt(code);
+                if (numCode >= 100 && numCode < 200) {
+                    footer.classList.add('footer-info');
+                    footerIcon.className = 'bi bi-info-circle me-1';
+                } else if (numCode >= 200 && numCode < 300) {
+                    footer.classList.add('footer-success');
+                    footerIcon.className = 'bi bi-check-circle me-1';
+                } else if (numCode >= 300 && numCode < 400) {
+                    footer.classList.add('footer-warning');
+                    footerIcon.className = 'bi bi-arrow-right-circle me-1';
+                } else if (numCode >= 400 && numCode < 600) {
+                    footer.classList.add('footer-error');
+                    footerIcon.className = 'bi bi-exclamation-circle me-1';
+                } else if (numCode >= 600) {
+                    footer.classList.add('footer-severe');
+                    footerIcon.className = 'bi bi-x-octagon me-1';
+                } else {
+                    footerIcon.className = 'bi bi-info-circle me-1';
+                }
+
+                footer.style.display = 'flex';
+            }
+
+            clearSIPEvent() {
+                document.getElementById('statusFooter').style.display = 'none';
             }
 
             handleDisconnection(error) {
