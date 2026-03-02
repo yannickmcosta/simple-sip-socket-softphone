@@ -2263,15 +2263,65 @@
                 try {
                     this.log('Completing attended transfer...');
 
+                    // Set up termination listeners BEFORE sending REFER
+                    // This ensures we catch the BYE from Asterisk
+                    const waitForTermination = () => {
+                        return new Promise((resolve) => {
+                            let resolved = false;
+                            const checkAndResolve = () => {
+                                if (!resolved) {
+                                    resolved = true;
+                                    resolve();
+                                }
+                            };
+
+                            // Listen for primary session termination
+                            if (this.primarySession) {
+                                this.primarySession.stateChange.addListener((state) => {
+                                    if (state === SIP.SessionState.Terminated) {
+                                        this.log('Primary session terminated');
+                                        checkAndResolve();
+                                    }
+                                });
+                            }
+
+                            // Listen for transfer target session termination
+                            if (this.transferTargetSession) {
+                                this.transferTargetSession.stateChange.addListener((state) => {
+                                    if (state === SIP.SessionState.Terminated) {
+                                        this.log('Transfer target session terminated');
+                                        checkAndResolve();
+                                    }
+                                });
+                            }
+                        });
+                    };
+
+                    const terminationPromise = waitForTermination();
+
                     // Use REFER with the transfer target session for attended transfer
                     await this.primarySession.refer(this.transferTargetSession);
 
                     this.log('Attended transfer completed', 'success');
 
-                    // Clean up
+                    // Wait for sessions to properly terminate (with 5 second timeout)
+                    // This ensures BYE is received before we clear session state
+                    this.log('Waiting for session termination...');
+                    await Promise.race([
+                        terminationPromise,
+                        new Promise(resolve => setTimeout(() => {
+                            this.log('Session termination timeout - forcing cleanup');
+                            resolve();
+                        }, 5000))
+                    ]);
+
+                    // Now safe to clean up
+                    this.log('Cleaning up transfer state');
                     this.resetTransferState();
                 } catch (error) {
                     this.log(`Attended transfer completion failed: ${error.message}`, 'error');
+                    // Still try to clean up on error
+                    this.resetTransferState();
                 }
             }
 
