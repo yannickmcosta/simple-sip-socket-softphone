@@ -99,56 +99,29 @@
             margin-right: 6px;
         }
 
-        /* Sticky Status Footer */
-        .status-footer {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            z-index: 1019;
-            background: linear-gradient(135deg, #343a40 0%, #23272b 100%);
-            color: white;
-            padding: 0.5rem 1rem;
-            box-shadow: 0 -2px 10px rgba(0,0,0,0.2);
-            font-size: 0.875rem;
-            min-height: 44px;
-            display: flex;
-            align-items: center;
-        }
-        .status-footer.footer-info    { background: linear-gradient(135deg, #0d6efd 0%, #0a58ca 100%); }
-        .status-footer.footer-success  { background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%); }
-        .status-footer.footer-warning  { background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%); color: #212529; }
-        .status-footer.footer-error    { background: linear-gradient(135deg, #dc3545 0%, #c82333 100%); }
-        .status-footer.footer-severe   { background: linear-gradient(135deg, #842029 0%, #58151c 100%); }
+        /* SIP Event Toast Notifications */
+        .sip-toast { border: none; min-width: 300px; max-width: 420px; }
+        .sip-toast .toast-header { color: white; border-bottom: none; }
+        .sip-toast .btn-close { filter: invert(1) grayscale(100%) brightness(200%); }
 
-        .footer-code-badge {
-            font-family: monospace;
-            font-weight: 700;
-            font-size: 1rem;
-            background: rgba(255,255,255,0.2);
-            padding: 2px 8px;
-            border-radius: 4px;
-            margin-right: 0.5rem;
-        }
-        .footer-q850-badge {
-            font-size: 0.75rem;
-            background: rgba(255,255,255,0.15);
-            padding: 1px 8px;
+        .sip-toast-neutral .toast-header { background: linear-gradient(135deg, #343a40 0%, #23272b 100%); }
+        .sip-toast-info    .toast-header { background: linear-gradient(135deg, #0d6efd 0%, #0a58ca 100%); }
+        .sip-toast-success .toast-header { background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%); }
+        .sip-toast-warning .toast-header { background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%); color: #212529 !important; }
+        .sip-toast-warning .toast-header .btn-close { filter: none; }
+        .sip-toast-error   .toast-header { background: linear-gradient(135deg, #dc3545 0%, #c82333 100%); }
+        .sip-toast-severe  .toast-header { background: linear-gradient(135deg, #842029 0%, #58151c 100%); }
+
+        .sip-toast .toast-body { font-size: 0.85rem; background: #f8f9fa; border-radius: 0 0 6px 6px; }
+        .sip-toast-code { font-family: monospace; font-weight: 700; }
+        .sip-toast-q850 {
+            display: inline-block;
+            font-size: 0.73rem;
+            background: rgba(0,0,0,0.1);
+            padding: 1px 7px;
             border-radius: 10px;
-            margin-left: 0.5rem;
-            white-space: nowrap;
+            margin-top: 3px;
         }
-        .footer-description {
-            color: rgba(255,255,255,0.85);
-            font-size: 0.8rem;
-        }
-        .status-footer.footer-warning .footer-description { color: rgba(0,0,0,0.7); }
-        .footer-timestamp {
-            color: rgba(255,255,255,0.6);
-            font-size: 0.75rem;
-            white-space: nowrap;
-        }
-        .status-footer.footer-warning .footer-timestamp { color: rgba(0,0,0,0.5); }
 
         @keyframes pulse {
             0%, 100% { opacity: 1; }
@@ -162,7 +135,7 @@
         /* Main content area */
         .main-content {
             padding-top: 1rem;
-            padding-bottom: 124px;
+            padding-bottom: 80px;
         }
 
         /* Dialer styling */
@@ -264,8 +237,7 @@
         @media (max-width: 991.98px) {
             .mobile-bottom-nav { display: flex; }
             .side-panel-col { display: none; }
-            .main-content { padding-bottom: 155px; }
-            .status-footer { bottom: 65px; }
+            .main-content { padding-bottom: 100px; }
         }
 
         /* Offcanvas panels for mobile */
@@ -967,27 +939,8 @@
         </div>
     </nav>
 
-    <!-- Status Footer -->
-    <footer class="status-footer" id="statusFooter" style="display: none;">
-        <div class="container-fluid">
-            <div class="d-flex justify-content-between align-items-center w-100">
-                <div class="d-flex align-items-center flex-wrap gap-1">
-                    <i class="bi bi-info-circle me-1" id="footerIcon"></i>
-                    <span class="footer-code-badge" id="footerSipCode"></span>
-                    <span class="fw-semibold" id="footerSipReason"></span>
-                    <span class="footer-q850-badge d-none" id="footerQ850"></span>
-                    <span class="ms-2 footer-description" id="footerDescription"></span>
-                </div>
-                <div class="d-flex align-items-center ms-2 flex-shrink-0">
-                    <small class="footer-timestamp me-2" id="footerTimestamp"></small>
-                    <button class="btn btn-sm p-0 px-1" style="color: rgba(255,255,255,0.7); line-height:1;"
-                            id="footerClearBtn" onclick="window.softphone.clearSIPEvent()" title="Dismiss">
-                        <i class="bi bi-x-lg"></i>
-                    </button>
-                </div>
-            </div>
-        </div>
-    </footer>
+    <!-- SIP Event Toast Container -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3" id="sipToastContainer" style="z-index: 1100;"></div>
 
     <!-- Mobile Offcanvas Panels -->
     <!-- Presence Offcanvas (Mobile) -->
@@ -1710,6 +1663,24 @@
                     }
 
                     const inviter = new SIP.Inviter(this.ua, targetUri, { extraHeaders });
+
+                    // Override onReject on the instance to reliably capture rejection codes.
+                    // requestDelegate.onReject is not called reliably in SIP.js 0.21.x because
+                    // stateTransition() fires synchronously before the delegate check is reached.
+                    const _origOnReject = inviter.onReject.bind(inviter);
+                    inviter.onReject = (inviteResponse) => {
+                        try {
+                            const code = inviteResponse.message.statusCode;
+                            const reason = inviteResponse.message.reasonPhrase;
+                            const q850 = this.parseReasonHeader(inviteResponse.message.getHeader('Reason'));
+                            this.displaySIPEvent(code, reason, q850);
+                            this.log(`Call rejected: ${code} ${reason}`, 'error');
+                        } catch (e) {
+                            this.log(`SIP footer capture error: ${e.message}`, 'error');
+                        }
+                        _origOnReject(inviteResponse);
+                    };
+
                     this.currentSession = inviter;
                     this.currentCallType = 'outgoing';
 
@@ -1721,15 +1692,6 @@
                     inviter.invite({
                         sessionDescriptionHandlerOptions: {
                             constraints: { audio: true, video: false }
-                        },
-                        requestDelegate: {
-                            onReject: (inviteResponse) => {
-                                const code = inviteResponse.message.statusCode;
-                                const reason = inviteResponse.message.reasonPhrase;
-                                const q850 = this.parseReasonHeader(inviteResponse.message.getHeader('Reason'));
-                                this.displaySIPEvent(code, reason, q850);
-                                this.log(`Call rejected: ${code} ${reason}`, 'error');
-                            }
                         }
                     });
 
@@ -1896,10 +1858,13 @@
                     }
                 });
 
-                // Capture Q.850 cause codes from network-initiated BYE
+                // Capture Q.850 cause codes from network-initiated BYE.
+                // When onBye is set, SIP.js skips its own request.accept(), so we must call it.
+                // byeRequest.request is the SIP message (Bye.request getter returns incomingByeRequest.message).
                 session.delegate = {
                     onBye: (byeRequest) => {
-                        const reasonHeader = byeRequest.message.getHeader('Reason');
+                        byeRequest.accept();
+                        const reasonHeader = byeRequest.request.getHeader('Reason');
                         const q850 = this.parseReasonHeader(reasonHeader);
                         // Q.850 cause 16 = Normal call clearing — not noteworthy
                         if (q850 && q850.cause !== 16) {
@@ -4271,56 +4236,51 @@
             }
 
             displaySIPEvent(code, reason, q850Data = null) {
-                const footer = document.getElementById('statusFooter');
-                const footerCode = document.getElementById('footerSipCode');
-                const footerReason = document.getElementById('footerSipReason');
-                const footerQ850 = document.getElementById('footerQ850');
-                const footerDescription = document.getElementById('footerDescription');
-                const footerTimestamp = document.getElementById('footerTimestamp');
-                const footerIcon = document.getElementById('footerIcon');
+                const container = document.getElementById('sipToastContainer');
+                if (!container) return;
 
-                footerCode.textContent = code;
-                footerReason.textContent = reason;
-
-                const description = this.getSIPDescription(parseInt(code));
-                footerDescription.textContent = description;
-
-                if (q850Data) {
-                    footerQ850.textContent = `Q.850 ${q850Data.cause}: ${q850Data.text}`;
-                    footerQ850.classList.remove('d-none');
-                } else {
-                    footerQ850.classList.add('d-none');
-                }
-
-                footerTimestamp.textContent = new Date().toLocaleTimeString();
-
-                // Reset classes and apply colour based on code range
-                footer.className = 'status-footer';
                 const numCode = parseInt(code);
-                if (numCode >= 100 && numCode < 200) {
-                    footer.classList.add('footer-info');
-                    footerIcon.className = 'bi bi-info-circle me-1';
-                } else if (numCode >= 200 && numCode < 300) {
-                    footer.classList.add('footer-success');
-                    footerIcon.className = 'bi bi-check-circle me-1';
-                } else if (numCode >= 300 && numCode < 400) {
-                    footer.classList.add('footer-warning');
-                    footerIcon.className = 'bi bi-arrow-right-circle me-1';
-                } else if (numCode >= 400 && numCode < 600) {
-                    footer.classList.add('footer-error');
-                    footerIcon.className = 'bi bi-exclamation-circle me-1';
-                } else if (numCode >= 600) {
-                    footer.classList.add('footer-severe');
-                    footerIcon.className = 'bi bi-x-octagon me-1';
-                } else {
-                    footerIcon.className = 'bi bi-info-circle me-1';
-                }
+                let colorClass = 'sip-toast-neutral';
+                let iconClass = 'bi-info-circle';
+                if (numCode >= 100 && numCode < 200) { colorClass = 'sip-toast-info';    iconClass = 'bi-info-circle'; }
+                else if (numCode >= 200 && numCode < 300) { colorClass = 'sip-toast-success'; iconClass = 'bi-check-circle'; }
+                else if (numCode >= 300 && numCode < 400) { colorClass = 'sip-toast-warning'; iconClass = 'bi-arrow-right-circle'; }
+                else if (numCode >= 400 && numCode < 600) { colorClass = 'sip-toast-error';   iconClass = 'bi-exclamation-circle'; }
+                else if (numCode >= 600)                  { colorClass = 'sip-toast-severe';  iconClass = 'bi-x-octagon'; }
 
-                footer.style.display = 'flex';
+                const description = this.getSIPDescription(numCode);
+                const bodyParts = [];
+                if (description) bodyParts.push(`<div>${description}</div>`);
+                if (q850Data) bodyParts.push(`<span class="sip-toast-q850">Q.850 ${q850Data.cause}: ${q850Data.text}</span>`);
+                const bodyHtml = bodyParts.length
+                    ? `<div class="toast-body">${bodyParts.join('')}</div>`
+                    : '';
+
+                const toastEl = document.createElement('div');
+                toastEl.className = `toast sip-toast ${colorClass}`;
+                toastEl.setAttribute('role', 'alert');
+                toastEl.setAttribute('aria-live', 'assertive');
+                toastEl.setAttribute('aria-atomic', 'true');
+                toastEl.innerHTML = `
+                    <div class="toast-header">
+                        <i class="bi ${iconClass} me-2"></i>
+                        <strong class="me-auto"><span class="sip-toast-code">${code}</span> ${reason}</strong>
+                        <small class="text-muted ms-2">${new Date().toLocaleTimeString()}</small>
+                        <button type="button" class="btn-close ms-2" data-bs-dismiss="toast" aria-label="Close"></button>
+                    </div>
+                    ${bodyHtml}`;
+
+                container.appendChild(toastEl);
+                const toast = new bootstrap.Toast(toastEl, { autohide: true, delay: 8000 });
+                toast.show();
+                toastEl.addEventListener('hidden.bs.toast', () => toastEl.remove());
             }
 
             clearSIPEvent() {
-                document.getElementById('statusFooter').style.display = 'none';
+                // Dismiss all active SIP toasts
+                document.querySelectorAll('#sipToastContainer .toast').forEach(el => {
+                    bootstrap.Toast.getInstance(el)?.hide();
+                });
             }
 
             handleDisconnection(error) {
