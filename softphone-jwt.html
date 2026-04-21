@@ -165,6 +165,23 @@
             border-left-color: #28a745;
             background: #d4edda;
         }
+        /* Post-dial DTMF sequence progress */
+        .postdial-segment {
+            display: inline;
+            font-family: monospace;
+            font-size: 0.85rem;
+            color: #6c757d;
+            transition: color 0.2s;
+        }
+        .postdial-segment.sent { color: #28a745; }
+        .postdial-segment.active { color: #007bff; font-weight: 700; }
+        .postdial-segment.pending { color: #adb5bd; }
+        .postdial-control { color: #e67e22; font-weight: 700; }
+        #postDialProgress {
+            border-top: 1px solid rgba(0,0,0,0.1);
+            padding-top: 0.5rem;
+        }
+
         .custom-headers-card {
             border-left: 4px solid #6f42c1;
             background: #f8f5ff;
@@ -651,6 +668,16 @@
                             </div>
                         </div>
 
+                        <!-- Post-Dial Controls -->
+                        <div id="postDialControls" class="d-flex justify-content-center gap-2 mb-3">
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="addPauseBtn">
+                                <i class="bi bi-pause-circle"></i> Add Pause
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="addWaitBtn">
+                                <i class="bi bi-hand-index"></i> Add Wait
+                            </button>
+                        </div>
+
                         <!-- Call Button -->
                         <div class="d-grid mb-3">
                             <button type="button" class="btn btn-success btn-lg" id="callBtn" disabled>
@@ -703,6 +730,21 @@
                                             <small class="text-muted">Local URI</small>
                                             <div class="small text-truncate" id="localUri">-</div>
                                         </div>
+                                    </div>
+                                </div>
+
+                                <!-- Post-Dial DTMF Progress -->
+                                <div id="postDialProgress" class="d-none mt-2">
+                                    <small class="text-muted">Post-Dial DTMF</small>
+                                    <div id="postDialStatusText" class="small fw-bold mt-1"></div>
+                                    <div id="postDialSequenceDisplay" class="small font-monospace mt-1"></div>
+                                    <div class="mt-2" id="postDialActions">
+                                        <button type="button" class="btn btn-sm btn-success d-none" id="postDialContinueBtn">
+                                            Dial <span id="postDialNextDigits"></span>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-danger" id="postDialCancelBtn">
+                                            Cancel
+                                        </button>
                                     </div>
                                 </div>
 
@@ -1026,6 +1068,14 @@
                 // JWT Authentication
                 this.jwtToken = null;
 
+                // Post-dial DTMF sequence state
+                this.postDialSequence = null;
+                this.postDialIndex = 0;
+                this.postDialActive = false;
+                this.postDialCancelled = false;
+                this.postDialWaitResolve = null;
+                this.postDialPauseTimer = null;
+
                 // Presence properties
                 this.presenceEnabled = false;
                 this.publishExpires = 300;
@@ -1173,6 +1223,38 @@
                         this.makeCall();
                     }
                 });
+
+                // Normalise pasted content — convert aliases and strip invalid chars
+                const phoneInput = document.getElementById('phoneNumber');
+                phoneInput.addEventListener('paste', (e) => {
+                    e.preventDefault();
+                    const pasted = (e.clipboardData || window.clipboardData).getData('text');
+                    const normalised = this.normaliseDialInput(pasted);
+                    const start = phoneInput.selectionStart;
+                    const end = phoneInput.selectionEnd;
+                    const current = phoneInput.value;
+                    phoneInput.value = current.substring(0, start) + normalised + current.substring(end);
+                    phoneInput.selectionStart = phoneInput.selectionEnd = start + normalised.length;
+                });
+
+                // Live normalisation on input — convert p/w aliases as the user types
+                phoneInput.addEventListener('input', () => {
+                    const pos = phoneInput.selectionStart;
+                    const normalised = this.normaliseDialInput(phoneInput.value);
+                    if (normalised !== phoneInput.value) {
+                        const diff = phoneInput.value.length - normalised.length;
+                        phoneInput.value = normalised;
+                        phoneInput.selectionStart = phoneInput.selectionEnd = Math.max(0, pos - diff);
+                    }
+                });
+
+                // Post-dial controls
+                document.getElementById('addPauseBtn').addEventListener('click', () => this.addDigit(','));
+                document.getElementById('addWaitBtn').addEventListener('click', () => this.addDigit(';'));
+                document.getElementById('postDialContinueBtn').addEventListener('click', () => {
+                    if (this.postDialWaitResolve) this.postDialWaitResolve();
+                });
+                document.getElementById('postDialCancelBtn').addEventListener('click', () => this.cancelPostDial());
 
                 // Incoming call modal controls
                 document.getElementById('acceptCallBtn').addEventListener('click', () => this.acceptIncomingCall());
@@ -1633,14 +1715,22 @@
                 }
 
                 const phoneNumber = document.getElementById('phoneNumber').value;
-                if (!phoneNumber) {
+                const parsed = this.parseDialString(phoneNumber);
+                const dialTarget = parsed.target;
+
+                if (!dialTarget) {
                     this.log('Please enter a phone number', 'error');
                     return;
                 }
 
+                // Store post-dial sequence for execution after call establishment
+                this.postDialSequence = parsed.sequence;
+                this.postDialIndex = 0;
+
                 try {
                     const sipDomain = document.getElementById('sipDomain').value;
-                    const targetUri = SIP.UserAgent.makeURI(`sip:${phoneNumber}@${sipDomain}`);
+                    // Only the clean dialable target is sent in SIP signalling
+                    const targetUri = SIP.UserAgent.makeURI(`sip:${dialTarget}@${sipDomain}`);
                     if (!targetUri) {
                         throw new Error('Invalid phone number');
                     }
@@ -1652,7 +1742,7 @@
                         return;
                     }
 
-                    this.log(`Making call to: ${phoneNumber}`);
+                    this.log(`Making call to: ${dialTarget}`);
 
                     const extraHeaders = [`Authorization: ${authHeader}`];
                     this.generatedCorrelationId = null;
@@ -1696,8 +1786,12 @@
                     });
 
                     this.updateCallStatus('Calling...');
-                    this.updateRemoteParty(phoneNumber);
+                    this.updateRemoteParty(dialTarget);
                     this.enableCallControls(true);
+
+                    if (parsed.sequence.length > 0) {
+                        this.log(`Post-dial sequence queued (${parsed.sequence.length} actions)`, 'info');
+                    }
 
                 } catch (error) {
                     this.log(`Call failed: ${error.message}`, 'error');
@@ -1846,6 +1940,11 @@
                             this.debugAudioState(session);
 
                             this.displayCustomHeaders(session);
+
+                            // Execute queued post-dial DTMF sequence if present
+                            if (this.postDialSequence && this.postDialSequence.length > 0) {
+                                this.executePostDialSequence();
+                            }
                             break;
                         case SIP.SessionState.Terminated:
                             this.updateCallStatus('Call Ended');
@@ -2224,7 +2323,9 @@
             }
 
             async blindTransfer() {
-                const targetNumber = document.getElementById('transferTarget').value.trim();
+                const rawTarget = document.getElementById('transferTarget').value.trim();
+                // Strip any post-dial characters from the transfer target
+                const targetNumber = this.parseDialString(rawTarget).target;
                 if (!targetNumber) {
                     this.log('Please enter a transfer target', 'error');
                     return;
@@ -2257,7 +2358,9 @@
             }
 
             async startAttendedTransfer() {
-                const targetNumber = document.getElementById('transferTarget').value.trim();
+                const rawTarget = document.getElementById('transferTarget').value.trim();
+                // Strip any post-dial characters from the transfer target
+                const targetNumber = this.parseDialString(rawTarget).target;
                 if (!targetNumber) {
                     this.log('Please enter a transfer target', 'error');
                     return;
@@ -2562,6 +2665,233 @@
                 }
             }
 
+            // -- Post-dial DTMF sequence handling --
+
+            // Parses a dial string into a clean target and an ordered post-dial
+            // action sequence. Control characters (,;) and their aliases (p/w)
+            // are stripped from the target so only dialable digits reach signalling.
+            parseDialString(rawInput) {
+                // Normalise aliases before anything else
+                let normalised = rawInput
+                    .replace(/[pP]/g, ',')
+                    .replace(/[wW]/g, ';');
+
+                // Strip tel: URI scheme prefix if pasted
+                normalised = normalised.replace(/^tel:\/*/, '');
+
+                // Allow only dialable characters and control chars
+                normalised = normalised.replace(/[^0-9*#+,;]/g, '');
+
+                // Find the first control character — everything before it is the target
+                const firstControl = normalised.search(/[,;]/);
+                if (firstControl === -1) {
+                    return { target: normalised, sequence: [], displayString: normalised };
+                }
+
+                const target = normalised.substring(0, firstControl);
+                const remainder = normalised.substring(firstControl);
+                const sequence = [];
+                let digitBuffer = '';
+
+                for (const ch of remainder) {
+                    if (ch === ',' || ch === ';') {
+                        if (digitBuffer) {
+                            sequence.push({ type: 'digits', value: digitBuffer });
+                            digitBuffer = '';
+                        }
+                        sequence.push({ type: ch === ',' ? 'pause' : 'wait' });
+                    } else {
+                        digitBuffer += ch;
+                    }
+                }
+                if (digitBuffer) {
+                    sequence.push({ type: 'digits', value: digitBuffer });
+                }
+
+                return { target, sequence, displayString: normalised };
+            }
+
+            // Normalises raw input for display — converts aliases, strips invalid chars.
+            // Preserves tel: URI digits including leading +.
+            normaliseDialInput(value) {
+                let out = value
+                    .replace(/[pP]/g, ',')
+                    .replace(/[wW]/g, ';');
+                out = out.replace(/^tel:\/*/, '');
+                return out.replace(/[^0-9*#+,;]/g, '');
+            }
+
+            // Executes the post-dial sequence after call establishment. Each action
+            // runs serially: pauses wait a fixed delay, waits prompt the user, and
+            // digit groups are sent as in-call DTMF one tone at a time.
+            async executePostDialSequence() {
+                if (!this.postDialSequence || this.postDialSequence.length === 0) return;
+
+                this.postDialActive = true;
+                this.postDialCancelled = false;
+                this.postDialIndex = 0;
+                this.showPostDialProgress();
+                this.log('Starting post-dial DTMF sequence', 'info');
+
+                for (let i = 0; i < this.postDialSequence.length; i++) {
+                    if (this.postDialCancelled) break;
+                    if (!this.currentSession || this.currentSession.state !== SIP.SessionState.Established) break;
+
+                    this.postDialIndex = i;
+                    const action = this.postDialSequence[i];
+                    this.renderPostDialProgress();
+
+                    switch (action.type) {
+                        case 'pause':
+                            this.setPostDialStatus('Pausing...');
+                            try {
+                                await this.cancellableSleep(2000);
+                            } catch (_) { /* cancelled */ }
+                            break;
+
+                        case 'wait': {
+                            // Peek ahead to find the next digit group for the "Dial XXX" label
+                            const nextDigits = this.peekNextDigits(i);
+                            this.setPostDialStatus('Waiting for confirmation...');
+                            this.showWaitPrompt(nextDigits);
+                            try {
+                                await this.waitForUserConfirmation();
+                            } catch (_) { break; } // cancelled
+                            this.hideWaitPrompt();
+                            break;
+                        }
+
+                        case 'digits':
+                            this.setPostDialStatus(`Sending ${action.value}...`);
+                            for (const ch of action.value) {
+                                if (this.postDialCancelled) break;
+                                if (!this.currentSession || this.currentSession.state !== SIP.SessionState.Established) break;
+                                this.sendDTMF(ch);
+                                try {
+                                    await this.cancellableSleep(150);
+                                } catch (_) { break; }
+                            }
+                            break;
+                    }
+                }
+
+                this.postDialActive = false;
+                this.hidePostDialProgress();
+                if (!this.postDialCancelled) {
+                    this.log('Post-dial DTMF sequence completed', 'info');
+                }
+            }
+
+            cancelPostDial() {
+                this.postDialCancelled = true;
+
+                // Clear any pending pause timer
+                if (this.postDialPauseTimer) {
+                    clearTimeout(this.postDialPauseTimer);
+                    this.postDialPauseTimer = null;
+                }
+
+                // Reject any pending wait-for-user promise
+                if (this.postDialWaitResolve) {
+                    this.postDialWaitResolve = null;
+                }
+
+                this.hidePostDialProgress();
+
+                if (this.postDialActive) {
+                    this.log('Post-dial DTMF sequence cancelled', 'info');
+                }
+                this.postDialActive = false;
+            }
+
+            // Returns a promise that resolves after ms, or rejects if the
+            // post-dial sequence is cancelled while waiting.
+            cancellableSleep(ms) {
+                return new Promise((resolve, reject) => {
+                    if (this.postDialCancelled) { reject(); return; }
+                    this.postDialPauseTimer = setTimeout(() => {
+                        this.postDialPauseTimer = null;
+                        if (this.postDialCancelled) { reject(); } else { resolve(); }
+                    }, ms);
+                });
+            }
+
+            // Returns a promise that resolves when the user clicks "Continue"
+            // or rejects when cancelled.
+            waitForUserConfirmation() {
+                return new Promise((resolve, reject) => {
+                    if (this.postDialCancelled) { reject(); return; }
+                    this.postDialWaitResolve = () => {
+                        this.postDialWaitResolve = null;
+                        if (this.postDialCancelled) { reject(); } else { resolve(); }
+                    };
+                });
+            }
+
+            // Look ahead from a wait action to find the next digit group,
+            // used for the iOS-style "Dial XXX" button label.
+            peekNextDigits(fromIndex) {
+                for (let j = fromIndex + 1; j < this.postDialSequence.length; j++) {
+                    if (this.postDialSequence[j].type === 'digits') {
+                        return this.postDialSequence[j].value;
+                    }
+                    if (this.postDialSequence[j].type === 'wait') break;
+                }
+                return null;
+            }
+
+            // -- Post-dial progress UI --
+
+            showPostDialProgress() {
+                document.getElementById('postDialProgress').classList.remove('d-none');
+            }
+
+            hidePostDialProgress() {
+                document.getElementById('postDialProgress').classList.add('d-none');
+                this.hideWaitPrompt();
+            }
+
+            setPostDialStatus(text) {
+                document.getElementById('postDialStatusText').textContent = text;
+            }
+
+            // Builds a coloured inline representation of the sequence showing
+            // which segments have been sent, which is active, and what's pending.
+            renderPostDialProgress() {
+                const container = document.getElementById('postDialSequenceDisplay');
+                let html = '';
+                this.postDialSequence.forEach((action, idx) => {
+                    let cls = 'postdial-segment';
+                    if (idx < this.postDialIndex) cls += ' sent';
+                    else if (idx === this.postDialIndex) cls += ' active';
+                    else cls += ' pending';
+
+                    if (action.type === 'pause') {
+                        html += `<span class="${cls} postdial-control">,</span>`;
+                    } else if (action.type === 'wait') {
+                        html += `<span class="${cls} postdial-control">;</span>`;
+                    } else if (action.type === 'digits') {
+                        html += `<span class="${cls}">${action.value}</span>`;
+                    }
+                });
+                container.innerHTML = html;
+            }
+
+            showWaitPrompt(nextDigits) {
+                const btn = document.getElementById('postDialContinueBtn');
+                const label = document.getElementById('postDialNextDigits');
+                if (nextDigits) {
+                    label.textContent = nextDigits;
+                } else {
+                    label.textContent = '';
+                }
+                btn.classList.remove('d-none');
+            }
+
+            hideWaitPrompt() {
+                document.getElementById('postDialContinueBtn').classList.add('d-none');
+            }
+
             toggleMute() {
                 if (!this.currentSession || this.currentSession.state !== SIP.SessionState.Established) {
                     return;
@@ -2678,6 +3008,11 @@
                 this.isOnHold = false;
                 this.generatedCorrelationId = null;
                 this.isMuted = false;
+
+                // Cancel any active post-dial sequence
+                this.cancelPostDial();
+                this.postDialSequence = null;
+                this.postDialIndex = 0;
 
                 this.updateCallStatus('Idle');
                 this.updateRemoteParty('-');
