@@ -1640,6 +1640,16 @@
             }
 
             handleIncomingCall(invitation) {
+                // RFC 3891: if this INVITE names one of our active dialogs via
+                // a Replaces header, silently accept and terminate the replaced
+                // session — no modal, no ring. This is the UAS side of attended
+                // transfer (RFC 5589 §7).
+                const replacedSession = this.findSessionMatchingReplaces(invitation);
+                if (replacedSession) {
+                    this.handleReplacesInvite(invitation, replacedSession);
+                    return;
+                }
+
                 // Check DND status - auto decline if enabled
                 if (this.isDND) {
                     const callerNumber = invitation.remoteIdentity.uri.user;
@@ -1757,6 +1767,80 @@
                     this.clearCall();
                     this.log('Incoming call declined', 'info');
                 }
+            }
+
+            // RFC 3891: match an inbound INVITE's Replaces header against our
+            // active dialogs. Returns the session to be replaced, or null.
+            findSessionMatchingReplaces(invitation) {
+                let replaces;
+                try {
+                    replaces = invitation.request.parseHeader('replaces');
+                } catch (e) {
+                    const raw = invitation.request.getHeader('Replaces');
+                    if (!raw) return null;
+                    this.log(`Replaces header present but unparsable: ${raw}`, 'error');
+                    return null;
+                }
+                if (!replaces || !replaces.call_id) return null;
+
+                const candidates = [this.currentSession, this.primarySession, this.transferTargetSession]
+                    .filter(s => s && s.dialog);
+
+                for (const session of candidates) {
+                    const d = session.dialog;
+                    if (d.callId !== replaces.call_id) continue;
+                    // Tag orientation depends on who originated the dialog —
+                    // RFC 3891 §3 requires matching in both directions.
+                    const orientationA = d.localTag === replaces.replaces_to_tag
+                                      && d.remoteTag === replaces.replaces_from_tag;
+                    const orientationB = d.localTag === replaces.replaces_from_tag
+                                      && d.remoteTag === replaces.replaces_to_tag;
+                    if (orientationA || orientationB) return session;
+                }
+                return null;
+            }
+
+            // Auto-accept a Replaces INVITE, then BYE the replaced leg. Accept
+            // first so the media path is in place before the old dialog drops —
+            // avoids a perceptible audio gap for the far end.
+            async handleReplacesInvite(invitation, replacedSession) {
+                const from = invitation.remoteIdentity.displayName || invitation.remoteIdentity.uri.user;
+                const referredBy = invitation.request.getHeader('Referred-By');
+                this.log(`Replaces INVITE from ${from}${referredBy ? ` (referred by ${referredBy})` : ''} — auto-accepting`, 'info');
+
+                this.setupSessionHandlers(invitation);
+                this.currentSession = invitation;
+                this.currentCallType = 'incoming';
+                this.pendingInvitation = null;
+
+                try {
+                    await invitation.accept({
+                        sessionDescriptionHandlerOptions: {
+                            constraints: { audio: true, video: false }
+                        }
+                    });
+                } catch (err) {
+                    this.log(`Failed to accept Replaces INVITE: ${err.message}`, 'error');
+                    try { invitation.reject(); } catch (_) {}
+                    return;
+                }
+
+                try {
+                    if (replacedSession.state !== SIP.SessionState.Terminated
+                     && replacedSession.state !== SIP.SessionState.Terminating) {
+                        await replacedSession.bye();
+                    }
+                } catch (err) {
+                    this.log(`Replaces: failed to BYE replaced leg: ${err.message}`, 'error');
+                }
+
+                if (this.primarySession === replacedSession) this.primarySession = null;
+                if (this.transferTargetSession === replacedSession) this.transferTargetSession = null;
+
+                this.updateRemoteParty(from);
+                this.updateCallStatus('Connected');
+                this.enableCallControls(true);
+                this.publishCallState('in_call');
             }
 
             setupSessionHandlers(session) {
@@ -1964,7 +2048,9 @@
 
                 const customHeaders = {};
                 for (const [name, values] of Object.entries(headers)) {
-                    if (name.startsWith('X-')) {
+                    // X-* custom headers plus Referred-By (RFC 3892 — indicates
+                    // who transferred this call) are surfaced to the UI.
+                    if (name.startsWith('X-') || name.toLowerCase() === 'referred-by') {
                         customHeaders[name] = values.map(v => v.raw).join(', ');
                     }
                 }
