@@ -933,7 +933,7 @@
                     <div class="modal-body">
                         <div class="mb-3">
                             <label for="transferTarget" class="form-label">Transfer To:</label>
-                            <input type="text" class="form-control" id="transferTarget" placeholder="Enter phone number or extension">
+                            <input type="text" class="form-control" id="transferTarget" placeholder="Enter phone number or extension" autocomplete="off" spellcheck="false">
                         </div>
                         <div class="d-grid gap-2">
                             <button type="button" class="btn btn-primary" id="blindTransferBtn">
@@ -2408,6 +2408,21 @@
                 this.transferModal.show();
             }
 
+            // Returns true when the typed transfer target resolves to this UA's
+            // own AOR user-part. Without this guard a REFER built from the wrong
+            // value loops the call straight back to the transferor. Comparison
+            // is case-insensitive and also matches a fully-qualified sip: URI.
+            isSelfTransferTarget(input) {
+                const ownUri = this.ua && this.ua.configuration && this.ua.configuration.uri;
+                if (!ownUri || !ownUri.user) return false;
+                const ownUser = String(ownUri.user).toLowerCase();
+                let typed = String(input).trim().toLowerCase();
+                const at = typed.indexOf('@');
+                if (typed.startsWith('sip:')) typed = typed.slice(4);
+                if (at !== -1) typed = typed.split('@')[0].replace(/^sip:/, '');
+                return typed === ownUser;
+            }
+
             async blindTransfer() {
                 // Transfer target is a SIP identifier (may be alphanumeric, e.g.
                 // su_<uuid>), not a dialable phone number — do NOT run through
@@ -2415,6 +2430,11 @@
                 const targetNumber = document.getElementById('transferTarget').value.trim();
                 if (!targetNumber) {
                     this.log('Please enter a transfer target', 'error');
+                    return;
+                }
+
+                if (this.isSelfTransferTarget(targetNumber)) {
+                    this.log(`Refusing to transfer to own URI (${targetNumber}) — self-transfer would loop the call back`, 'error');
                     return;
                 }
 
@@ -2430,7 +2450,8 @@
                         throw new Error('Invalid transfer target');
                     }
 
-                    this.log(`Initiating blind transfer to: ${targetNumber}`);
+                    // Ground-truth log of exactly what lands in Refer-To on the wire.
+                    this.log(`Blind transfer — input=${targetNumber}, Refer-To=${targetUri.toString()}`, 'info');
 
                     // Use the refer method for blind transfer
                     await this.currentSession.refer(targetUri);
@@ -2451,6 +2472,11 @@
                 const targetNumber = document.getElementById('transferTarget').value.trim();
                 if (!targetNumber) {
                     this.log('Please enter a transfer target', 'error');
+                    return;
+                }
+
+                if (this.isSelfTransferTarget(targetNumber)) {
+                    this.log(`Refusing to transfer to own URI (${targetNumber}) — self-transfer would loop the call back`, 'error');
                     return;
                 }
 
@@ -2495,6 +2521,9 @@
                     if (!targetUri) {
                         throw new Error('Invalid transfer target');
                     }
+
+                    // Ground-truth log of the consult INVITE target.
+                    this.log(`Attended consult — input=${targetNumber}, INVITE target=${targetUri.toString()}`, 'info');
 
                     const inviter = new SIP.Inviter(this.ua, targetUri, {
                         extraHeaders: [
