@@ -2249,9 +2249,10 @@
             }
 
             async blindTransfer() {
-                const rawTarget = document.getElementById('transferTarget').value.trim();
-                // Strip any post-dial characters from the transfer target
-                const targetNumber = this.parseDialString(rawTarget).target;
+                // Transfer target is a SIP identifier (may be alphanumeric, e.g.
+                // su_<uuid>), not a dialable phone number — do NOT run through
+                // parseDialString, which strips non-digit chars and mangles it.
+                const targetNumber = document.getElementById('transferTarget').value.trim();
                 if (!targetNumber) {
                     this.log('Please enter a transfer target', 'error');
                     return;
@@ -2284,9 +2285,10 @@
             }
 
             async startAttendedTransfer() {
-                const rawTarget = document.getElementById('transferTarget').value.trim();
-                // Strip any post-dial characters from the transfer target
-                const targetNumber = this.parseDialString(rawTarget).target;
+                // Transfer target is a SIP identifier (may be alphanumeric, e.g.
+                // su_<uuid>), not a dialable phone number — do NOT run through
+                // parseDialString, which strips non-digit chars and mangles it.
+                const targetNumber = document.getElementById('transferTarget').value.trim();
                 if (!targetNumber) {
                     this.log('Please enter a transfer target', 'error');
                     return;
