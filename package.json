@@ -1,0 +1,10 @@
+{
+  "name": "simple-sip-socket-softphone",
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "libphonenumber-js": "1.13.13"
+  }
+}
